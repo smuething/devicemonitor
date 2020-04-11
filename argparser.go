@@ -34,13 +34,16 @@ Bei der nächsten Fehlermeldung klicken Sie bitte auf "Nein".`).Title("Druckfehl
 
 type job struct {
 	args      []string
+	logfile   io.Writer
 	deviceArg int
 	outputArg int
+	device    string
+	output    string
 	input     string
 	printer   string
 }
 
-func newJob(args []string) *job {
+func newJob(args []string, logfile io.Writer) *job {
 
 	deviceArg := -1
 	outputArg := -1
@@ -68,24 +71,108 @@ func newJob(args []string) *job {
 
 	j := job{
 		args:      args,
+		logfile:   logfile,
 		deviceArg: deviceArg,
 		outputArg: outputArg,
+		device:    args[deviceArg],
+		output:    args[outputArg],
 		input:     args[len(args)-1],
 		printer:   printerName,
 	}
 
 	return &j
-
 }
 
-func main() {
+func (j *job) CreatePDF() {
 
+	pdf := strings.Replace(j.input, ".txt", ".pdf", 1)
+	log.Infof("Creating PDF file: %s", pdf)
+
+	// The wrapped executable must be late in the alphabet because Printfil picks the first executable it finds in the directory
+	executable := filepath.Join(filepath.Dir(os.Args[0]), "zzz-wrapped-"+filepath.Base(os.Args[0]))
+	log.Debugf("Wrapped executable: %s", executable)
+
+	cmd := exec.Command(executable)
+	cmd.Stdin = os.Stdin
+	cmd.Stdout = j.logfile
+	cmd.Stderr = j.logfile
+	cmd.SysProcAttr = &syscall.SysProcAttr{}
+
+	j.args[j.deviceArg] = "-sDEVICE=pdfwrite"
+	j.args[j.outputArg] = fmt.Sprintf("-sOutputFile=%s", pdf)
+
+	// Escape all arguments that contain problematic characters
+	for i, arg := range j.args {
+		if invalidChars.MatchString(arg) {
+			j.args[i] = fmt.Sprintf(`"%s"`, arg)
+		}
+	}
+
+	cmdLine := strings.Join(j.args, " ")
+	cmd.SysProcAttr.CmdLine = cmdLine
+	log.Debugf("Calling wrapped executable with cmdline: %s", cmdLine)
+
+	err := cmd.Run()
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Open PDF file in viewer
+	log.Debug("Opening PDF file with default viewer")
+	runDLL32 := filepath.Join(os.Getenv("SYSTEMROOT"), "system32", "rundll32.exe")
+	cmd = exec.Command(runDLL32, "SHELL32.DLL,ShellExec_RunDLL", pdf)
+
+	err = cmd.Start()
+	if err != nil {
+		log.Fatal(err)
+	}
+}
+
+func (j *job) ForwardPCLStream() {
+
+	log.Infof("Passing raw PCL data stream to printer: %s", j.printer)
+
+	log.Debugf("Opening input file: %s", j.input)
+	data, err := os.Open(j.input)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer data.Close()
+
+	log.Debugf("Opening printer")
+	p, err := printer.Open(j.printer)
+	if err != nil {
+	}
+	defer p.Close()
+
+	log.Debugf("Starting RAW document")
+	err = p.StartDocument(filepath.Base(j.input), "RAW")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer p.EndDocument()
+
+	log.Debugf("Starting page")
+	err = p.StartPage()
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer p.EndPage()
+
+	log.Debugf("Sending file contents")
+	if nBytes, err := io.Copy(p, data); err != nil {
+		log.Fatal(err)
+	} else {
+		log.Debugf("Sent %d bytes", nBytes)
+	}
+}
+
+func setupLogging() *os.File {
 	logfile, err := os.OpenFile("w:\\printlog.txt", os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
 	if err != nil {
 		fatalHandler()
 		panic(err)
 	}
-	defer logfile.Close()
 
 	log.SetFormatter(&prefixed.TextFormatter{
 		DisableColors:   true,
@@ -102,119 +189,24 @@ func main() {
 	} else {
 		log.SetLevel(log.InfoLevel)
 	}
+	return logfile
+}
+
+func main() {
+
+	logfile := setupLogging()
+	defer logfile.Close()
 
 	log.WithFields(logrus.Fields{
 		"cmdline": strings.Join(os.Args, " "),
 	}).Info("Startup")
 
-	j := newJob(os.Args)
+	j := newJob(os.Args, logfile)
 
-	args := os.Args
-	deviceArg := -1
-	outputArg := -1
-	printingToPDF := false
-	for i, arg := range args {
-		if strings.HasPrefix(arg, "-sDEVICE=") {
-			deviceArg = i
-			log.Debugf("Found device specifier at position %d: %s", i, arg)
-		}
-		if strings.HasPrefix(arg, "-sOutputFile=") {
-			outputArg = i
-			log.Debugf("Found output specifier at position %d: %s", i, arg)
-		}
-	}
-
-	if strings.EqualFold(args[outputArg], "-sOutputFile=%printer%PDF") {
-		printingToPDF = true
-	}
-
-	if printingToPDF {
-
-		pdf := strings.Replace(j.input, ".txt", ".pdf", 1)
-		log.Infof("Creating PDF file: %s", pdf)
-
-		// The executable must be late in the alphabet because Printfil picks the first executable it finds in the directory
-		executable := filepath.Join(filepath.Dir(os.Args[0]), "zzz-wrapped-"+filepath.Base(os.Args[0]))
-		log.Debugf("Wrapped executable: %s", executable)
-
-		cmd := exec.Command(executable)
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = logfile
-		cmd.Stderr = logfile
-		cmd.SysProcAttr = &syscall.SysProcAttr{}
-
-		args[deviceArg] = "-sDEVICE=pdfwrite"
-		args[outputArg] = fmt.Sprintf("-sOutputFile=%s", pdf)
-
-		// Escape all arguments that contain problematic characters
-		for i, arg := range args {
-			if invalidChars.MatchString(arg) {
-				args[i] = fmt.Sprintf(`"%s"`, arg)
-			}
-		}
-
-		cmdLine := strings.Join(args, " ")
-		cmd.SysProcAttr.CmdLine = cmdLine
-		log.Debugf("Calling wrapped executable with cmdline: %s", cmdLine)
-
-		err = cmd.Run()
-		if err != nil {
-			log.Fatal(err)
-		}
-
-		// Open PDF file in viewer
-		log.Debug("Opening PDF file with default viewer")
-		runDLL32 := filepath.Join(os.Getenv("SYSTEMROOT"), "system32", "rundll32.exe")
-		cmd = exec.Command(runDLL32, "SHELL32.DLL,ShellExec_RunDLL", pdf)
-
-		err = cmd.Start()
-		if err != nil {
-			log.Fatal(err)
-		}
-
+	if strings.EqualFold(j.output, "-sOutputFile=%printer%PDF") {
+		j.CreatePDF()
 	} else {
-
-		// Get printer name from GhostPCL command line
-		printerName := extractPrinter.FindStringSubmatch(args[outputArg])[1]
-
-		log.Infof("Passing raw PCL data stream to printer: %s", printerName)
-
-		dataFile := args[len(args)-1]
-
-		log.Debugf("Opening input file: %s", dataFile)
-		data, err := os.Open(dataFile)
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer data.Close()
-
-		log.Debugf("Opening printer")
-		p, err := printer.Open(printerName)
-		if err != nil {
-		}
-		defer p.Close()
-
-		log.Debugf("Starting RAW document")
-		err = p.StartDocument(filepath.Base(dataFile), "RAW")
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer p.EndDocument()
-
-		log.Debugf("Starting page")
-		err = p.StartPage()
-		if err != nil {
-			log.Fatal(err)
-		}
-		defer p.EndPage()
-
-		log.Debugf("Sending file contents")
-		if nBytes, err := io.Copy(p, data); err != nil {
-			log.Fatal(err)
-		} else {
-			log.Debugf("Sent %d bytes", nBytes)
-		}
-
+		j.ForwardPCLStream()
 	}
 	log.Info("Job complete")
 }
