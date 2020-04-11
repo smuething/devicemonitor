@@ -242,11 +242,17 @@ func (j *job) PrintPDFSelectPrinter() {
 	defer os.Remove(js)
 
 	cmd := exec.Command(PDFViewer, "/runjs:showui=no", js, j.pdf)
-	log.Debugf("Running: %s", buildCmdLine(cmd.Args))
+	cmd.SysProcAttr = &syscall.SysProcAttr{}
+	cmd.SysProcAttr.CmdLine = strings.Join([]string{
+		escapeArgument(PDFViewer),
+		escapeArgument("/runjs:showui=no"),
+		escapeArgument(js),
+		escapeArgument(j.pdf),
+	}, " ")
+	log.Debugf("Running: %s", cmd.SysProcAttr.CmdLine)
 	if err := cmd.Run(); err != nil {
 		log.Fatal(err)
 	}
-
 }
 
 func setupLogging() *os.File {
