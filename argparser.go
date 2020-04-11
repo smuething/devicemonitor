@@ -32,6 +32,52 @@ Für Unterstützung wenden Sie sich an Marc Diehl oder Steffen Müthing.
 Bei der nächsten Fehlermeldung klicken Sie bitte auf "Nein".`).Title("Druckfehler").Error()
 }
 
+type job struct {
+	args      []string
+	deviceArg int
+	outputArg int
+	input     string
+	printer   string
+}
+
+func newJob(args []string) *job {
+
+	deviceArg := -1
+	outputArg := -1
+	for i, arg := range args {
+		if strings.HasPrefix(arg, "-sDEVICE=") {
+			deviceArg = i
+			log.Debugf("Found device specifier at position %d: %s", i, arg)
+		}
+		if strings.HasPrefix(arg, "-sOutputFile=") {
+			outputArg = i
+			log.Debugf("Found output specifier at position %d: %s", i, arg)
+		}
+	}
+
+	if deviceArg < 0 {
+		log.Fatal("Missing device argument")
+	}
+
+	if outputArg < 0 {
+		log.Fatal("Missing output argument")
+	}
+
+	// Get printer name from GhostPCL command line
+	printerName := extractPrinter.FindStringSubmatch(args[outputArg])[1]
+
+	j := job{
+		args:      args,
+		deviceArg: deviceArg,
+		outputArg: outputArg,
+		input:     args[len(args)-1],
+		printer:   printerName,
+	}
+
+	return &j
+
+}
+
 func main() {
 
 	logfile, err := os.OpenFile("w:\\printlog.txt", os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
@@ -61,6 +107,8 @@ func main() {
 		"cmdline": strings.Join(os.Args, " "),
 	}).Info("Startup")
 
+	j := newJob(os.Args)
+
 	args := os.Args
 	deviceArg := -1
 	outputArg := -1
@@ -73,15 +121,16 @@ func main() {
 		if strings.HasPrefix(arg, "-sOutputFile=") {
 			outputArg = i
 			log.Debugf("Found output specifier at position %d: %s", i, arg)
-			if strings.EqualFold(arg, "-sOutputFile=%printer%PDF") {
-				printingToPDF = true
-			}
 		}
+	}
+
+	if strings.EqualFold(args[outputArg], "-sOutputFile=%printer%PDF") {
+		printingToPDF = true
 	}
 
 	if printingToPDF {
 
-		pdf := strings.Replace(args[len(args)-1], ".txt", ".pdf", 1)
+		pdf := strings.Replace(j.input, ".txt", ".pdf", 1)
 		log.Infof("Creating PDF file: %s", pdf)
 
 		// The executable must be late in the alphabet because Printfil picks the first executable it finds in the directory
