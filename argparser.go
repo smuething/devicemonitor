@@ -23,6 +23,9 @@ var invalidChars = regexp.MustCompile(`[^-a-zA-Z0-9_=/.,:;%()?+*~\\]`)
 // Regex for extracting printer name
 var extractPrinter = regexp.MustCompile(`%printer%(.*)`)
 
+// PDFViewer path to PDF viewer executable
+const PDFViewer = `c:\Program Files\Tracker Software\PDF Viewer\PDFXCview.exe`
+
 // Shows an error message to users to alert them that something has gone wrong
 func fatalHandler() {
 	dialog.Message(`Beim Verarbeiten des Druckauftrags ist ein Fehler aufgetreten.
@@ -173,6 +176,15 @@ func (j *job) ForwardPCLStream() {
 		log.Fatal(err)
 	} else {
 		log.Debugf("Sent %d bytes", nBytes)
+	}
+}
+
+func (j *job) PrintPDF() {
+
+	cmd := exec.Command(PDFViewer, fmt.Sprintf(`/print:default&showui=no&printer="%s"`, j.printer), j.pdf)
+
+	if err := cmd.Run(); err != nil {
+		log.Fatal(err)
 	}
 }
 
