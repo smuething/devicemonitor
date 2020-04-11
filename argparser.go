@@ -40,6 +40,7 @@ type job struct {
 	device    string
 	output    string
 	input     string
+	pdf       string
 	printer   string
 }
 
@@ -77,6 +78,7 @@ func newJob(args []string, logfile io.Writer) *job {
 		device:    args[deviceArg],
 		output:    args[outputArg],
 		input:     args[len(args)-1],
+		pdf:       "",
 		printer:   printerName,
 	}
 
@@ -85,8 +87,8 @@ func newJob(args []string, logfile io.Writer) *job {
 
 func (j *job) CreatePDF() {
 
-	pdf := strings.Replace(j.input, ".txt", ".pdf", 1)
-	log.Infof("Creating PDF file: %s", pdf)
+	j.pdf = strings.Replace(j.input, ".txt", ".pdf", 1)
+	log.Infof("Creating PDF file: %s", j.pdf)
 
 	// The wrapped executable must be late in the alphabet because Printfil picks the first executable it finds in the directory
 	executable := filepath.Join(filepath.Dir(os.Args[0]), "zzz-wrapped-"+filepath.Base(os.Args[0]))
@@ -99,7 +101,7 @@ func (j *job) CreatePDF() {
 	cmd.SysProcAttr = &syscall.SysProcAttr{}
 
 	j.args[j.deviceArg] = "-sDEVICE=pdfwrite"
-	j.args[j.outputArg] = fmt.Sprintf("-sOutputFile=%s", pdf)
+	j.args[j.outputArg] = fmt.Sprintf("-sOutputFile=%s", j.pdf)
 
 	// Escape all arguments that contain problematic characters
 	for i, arg := range j.args {
@@ -116,13 +118,20 @@ func (j *job) CreatePDF() {
 	if err != nil {
 		log.Fatal(err)
 	}
+}
+
+func (j *job) ShowPDF() {
+
+	if j.pdf == "" {
+		log.Fatal("Cannot show PDF, file has not been created yet")
+	}
 
 	// Open PDF file in viewer
 	log.Debug("Opening PDF file with default viewer")
 	runDLL32 := filepath.Join(os.Getenv("SYSTEMROOT"), "system32", "rundll32.exe")
-	cmd = exec.Command(runDLL32, "SHELL32.DLL,ShellExec_RunDLL", pdf)
+	cmd := exec.Command(runDLL32, "SHELL32.DLL,ShellExec_RunDLL", j.pdf)
 
-	err = cmd.Start()
+	err := cmd.Start()
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -205,6 +214,7 @@ func main() {
 
 	if strings.EqualFold(j.output, "-sOutputFile=%printer%PDF") {
 		j.CreatePDF()
+		j.ShowPDF()
 	} else {
 		j.ForwardPCLStream()
 	}
