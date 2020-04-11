@@ -35,6 +35,22 @@ Für Unterstützung wenden Sie sich an Marc Diehl oder Steffen Müthing.
 Bei der nächsten Fehlermeldung klicken Sie bitte auf "Nein".`).Title("Druckfehler").Error()
 }
 
+func escapeArgument(arg string) string {
+	if invalidChars.MatchString(arg) {
+		arg = fmt.Sprintf(`"%s"`, arg)
+	}
+	return arg
+}
+
+func buildCmdLine(args []string) string {
+	// Escape all arguments that contain problematic characters
+	for i, arg := range args {
+		args[i] = escapeArgument(arg)
+	}
+
+	return strings.Join(args, " ")
+}
+
 type job struct {
 	args      []string
 	logfile   io.Writer
@@ -101,19 +117,13 @@ func (j *job) CreatePDF() {
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = j.logfile
 	cmd.Stderr = j.logfile
-	cmd.SysProcAttr = &syscall.SysProcAttr{}
 
 	j.args[j.deviceArg] = "-sDEVICE=pdfwrite"
 	j.args[j.outputArg] = fmt.Sprintf("-sOutputFile=%s", j.pdf)
 
-	// Escape all arguments that contain problematic characters
-	for i, arg := range j.args {
-		if invalidChars.MatchString(arg) {
-			j.args[i] = fmt.Sprintf(`"%s"`, arg)
-		}
-	}
-
-	cmdLine := strings.Join(j.args, " ")
+	// Go messes up the command line, so we have to build it ourselves
+	cmd.SysProcAttr = &syscall.SysProcAttr{}
+	cmdLine := buildCmdLine(j.args)
 	cmd.SysProcAttr.CmdLine = cmdLine
 	log.Debugf("Calling wrapped executable with cmdline: %s", cmdLine)
 
@@ -134,6 +144,7 @@ func (j *job) ShowPDF() {
 	runDLL32 := filepath.Join(os.Getenv("SYSTEMROOT"), "system32", "rundll32.exe")
 	cmd := exec.Command(runDLL32, "SHELL32.DLL,ShellExec_RunDLL", j.pdf)
 
+	log.Debugf("Running: %s", buildCmdLine(cmd.Args))
 	err := cmd.Start()
 	if err != nil {
 		log.Fatal(err)
@@ -181,11 +192,61 @@ func (j *job) ForwardPCLStream() {
 
 func (j *job) PrintPDF() {
 
+	log.Debugf("Sending PDF to printer %s with default settings", j.printer)
+
+	if j.pdf == "" {
+		log.Fatal("Cannot print, PDF file has not been created yet")
+	}
+
 	cmd := exec.Command(PDFViewer, fmt.Sprintf(`/print:default&showui=no&printer="%s"`, j.printer), j.pdf)
+
+	// We have to manually build the command line, as Go messes up the second argument, which contains quotes
+	// somewhere in the middle of the argument
+	cmd.SysProcAttr = &syscall.SysProcAttr{}
+	cmd.SysProcAttr.CmdLine = strings.Join([]string{
+		escapeArgument(PDFViewer),
+		fmt.Sprintf(`/print:default&showui=no&printer="%s"`, j.printer),
+		escapeArgument(j.pdf),
+	}, " ")
+	log.Debugf("Running: %s", cmd.SysProcAttr.CmdLine)
 
 	if err := cmd.Run(); err != nil {
 		log.Fatal(err)
 	}
+}
+
+func (j *job) createPDFJSFile() string {
+
+	jspath := strings.Replace(j.input, ".txt", ".js", 1)
+	log.Debugf("Creating JavaScript file %s for PDF Viewer", jspath)
+	jsfile, err := os.Create(jspath)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer jsfile.Close()
+
+	fmt.Fprintf(jsfile, "this.print({bUI:true,bSilent:true,bShrinkToFit:false});\r\n")
+
+	return jspath
+}
+
+func (j *job) PrintPDFSelectPrinter() {
+
+	log.Debugf("Opening PDF viewer print dialog")
+
+	if j.pdf == "" {
+		log.Fatal("Cannot print, PDF file has not been created yet")
+	}
+
+	js := j.createPDFJSFile()
+	defer os.Remove(js)
+
+	cmd := exec.Command(PDFViewer, "/runjs:showui=no", js, j.pdf)
+	log.Debugf("Running: %s", buildCmdLine(cmd.Args))
+	if err := cmd.Run(); err != nil {
+		log.Fatal(err)
+	}
+
 }
 
 func setupLogging() *os.File {
@@ -222,13 +283,37 @@ func main() {
 		"cmdline": strings.Join(os.Args, " "),
 	}).Info("Startup")
 
+	// Parse job information from GhostPCL command line
 	j := newJob(os.Args, logfile)
 
-	if strings.EqualFold(j.output, "-sOutputFile=%printer%PDF") {
+	switch j.printer {
+	case "PDF":
+		log.Infof("Mode: Creating PDF and showing on screen")
 		j.CreatePDF()
 		j.ShowPDF()
-	} else {
-		j.ForwardPCLStream()
+	case "Drucker wählen":
+		// As we don't know what kind of printer (local or TS redirected) the user will
+		// choose, we always go through an intermediate PDF. This has the added advantage
+		// of honoring any print settings made by the user - due to the way PCL-based printing
+		// works in Printfil, the settings picked in Printfil's printer selection dialog are
+		// directly discarded and the print job uses the default print settings.
+		log.Infof("Mode: Creating PDF and showing PDF viewer print dialog")
+		j.CreatePDF()
+		j.PrintPDFSelectPrinter()
+	default:
+		if strings.Contains(j.printer, "umgeleitet") {
+			// Redirected printers go through some crazy hoops transmitting the print
+			// data to the TS client. The PCL stream does not survive this process, so
+			// we need to render to PDF and then print the PDF
+			log.Infof("Mode: directly printing to TS redirected printer: %s", j.printer)
+			j.CreatePDF()
+			j.PrintPDF()
+		} else {
+			// We assume that all directly connected printers support PCL, so there's no point
+			// in processing the data stream
+			log.Infof("Mode: forwarding raw PCL data to printer: %s", j.printer)
+			j.ForwardPCLStream()
+		}
 	}
 	log.Info("Job complete")
 }
