@@ -9,8 +9,11 @@ import (
 	"regexp"
 	"strings"
 	"syscall"
+	"time"
 
+	"github.com/TheTitanrain/w32"
 	"github.com/alexbrainman/printer"
+	"github.com/hnakamur/w32syscall"
 	"github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
 	"github.com/sqweek/dialog"
@@ -240,6 +243,45 @@ func (j *job) PrintPDFSelectPrinter() {
 
 	js := j.createPDFJSFile()
 	defer os.Remove(js)
+
+	// Windows tends to open the print dialog *below* the current AM window. Depending on the
+	// size of the window, the user does not even see the dialog. To make matters worse, as we
+	// have disabled the UI of the PDF viewer, there is not even an entry in the task list for
+	// the viewer, making it impossible for the user to see what's going on.
+	//
+	// So we need to bring the window to the foreground. The most obvious candidate in the Windows
+	// API for this is SetForegroundWindow(), but Windows restricts when this function may be called
+	// as it steals focus. The only other option is forcing the window to show up on top of all other
+	// windows, which this code does (this operation does *NOT* steal focus, it just makes the window
+	// very visible and impossible to hide).
+	//
+	// As we block on the call to the PDF viewer, we have to do the window elevation in the background
+	// Luckily, goroutines make this really easy. We just keep looping over all windows with a short pause
+	// inbetween until we have found our window.
+	go func() {
+
+		found := false
+		for !found {
+
+			time.Sleep(time.Millisecond * 50)
+
+			err := w32syscall.EnumWindows(func(hwnd syscall.Handle, lparam uintptr) bool {
+				h := w32.HWND(hwnd)
+				text := w32.GetWindowText(h)
+				if strings.Contains(text, "Drucken") {
+					// Force print window to be the topmost window
+					log.Debugf("Found print dialog, moving to foreground")
+					w32.SetWindowPos(h, w32.HWND_TOPMOST, 0, 0, 0, 0, w32.SWP_NOMOVE|w32.SWP_NOSIZE)
+					found = true
+					return false
+				}
+				return true
+			}, 0)
+			if err != nil {
+				log.Fatal(err)
+			}
+		}
+	}()
 
 	cmd := exec.Command(PDFViewer, "/runjs:showui=no", js, j.pdf)
 	cmd.SysProcAttr = &syscall.SysProcAttr{}
