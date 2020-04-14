@@ -107,9 +107,12 @@ func newJob(args []string, logfile io.Writer) *job {
 	return &j
 }
 
-func (j *job) CreatePDF() {
+func (j *job) CreatePDF(export bool) {
 
-	j.pdf = strings.Replace(j.input, ".txt", ".pdf", 1)
+	j.pdf = strings.TrimSuffix(j.input, filepath.Ext(j.input)) + ".pdf"
+	if export {
+		j.pdf = filepath.Join(`h:\ibest`, filepath.Base(j.pdf))
+	}
 	log.Infof("Creating PDF file: %s", j.pdf)
 
 	// The wrapped executable must be late in the alphabet because Printfil picks the first executable it finds in the directory
@@ -337,7 +340,7 @@ func main() {
 	switch j.printer {
 	case "PDF":
 		log.Infof("Mode: Creating PDF and showing on screen")
-		j.CreatePDF()
+		j.CreatePDF(true)
 		j.ShowPDF()
 	case "Drucker wählen":
 		// As we don't know what kind of printer (local or TS redirected) the user will
@@ -346,7 +349,7 @@ func main() {
 		// works in Printfil, the settings picked in Printfil's printer selection dialog are
 		// directly discarded and the print job uses the default print settings.
 		log.Infof("Mode: Creating PDF and showing PDF viewer print dialog")
-		j.CreatePDF()
+		j.CreatePDF(false)
 		j.PrintPDFSelectPrinter()
 	default:
 		if strings.Contains(j.printer, "umgeleitet") {
@@ -354,7 +357,7 @@ func main() {
 			// data to the TS client. The PCL stream does not survive this process, so
 			// we need to render to PDF and then print the PDF
 			log.Infof("Mode: directly printing to TS redirected printer: %s", j.printer)
-			j.CreatePDF()
+			j.CreatePDF(false)
 			j.PrintPDF()
 		} else {
 			// We assume that all directly connected printers support PCL, so there's no point
