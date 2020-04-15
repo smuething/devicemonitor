@@ -364,9 +364,9 @@ func main() {
 	m := multiconfig.NewWithPath("printing.toml")
 	m.Loader = multiconfig.MultiLoader(
 		&multiconfig.TagLoader{},
-		&multiconfig.TOMLLoader{Path: `\\muething.com\files\Daten\AM\Admin\printing.toml`},
-		&multiconfig.TOMLLoader{Path: `h:\am-config\printing.toml`},
-		&multiconfig.TOMLLoader{Path: `w:\printing.toml`},
+		&OptionalTOMLLoader{multiconfig.TOMLLoader{Path: `\\muething.com\files\Daten\AM\Admin\printing.toml`}},
+		&OptionalTOMLLoader{multiconfig.TOMLLoader{Path: `h:\am-config\printing.toml`}},
+		&OptionalTOMLLoader{multiconfig.TOMLLoader{Path: `w:\printing.toml`}},
 	)
 
 	m.MustLoad(config)
