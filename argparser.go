@@ -34,11 +34,12 @@ type Config struct {
 		GhostScript string `default:"gswin32c.exe"`
 	}
 	Printing struct {
-		PrintViaPDFPattern string `default:"umgeleitet"`
-		ScaleNonPJLJobs    bool   `default:"true"`
-		ScaledWidth        int    `default:"221"`
-		ScaledHeight       int    `default:"297"`
-		KeepUnscaledPDF    bool   `default:"false"`
+		PrintViaPDFPattern   string `default:"umgeleitet"`
+		ScaleNonPJLJobs      bool   `default:"true"`
+		PJLMagicPrexixLength int64  `default:"256"`
+		ScaledWidth          int    `default:"221"`
+		ScaledHeight         int    `default:"297"`
+		KeepUnscaledPDF      bool   `default:"false"`
 	}
 }
 
@@ -151,14 +152,22 @@ func (j *job) jobContainsPJL() bool {
 	}
 	defer f.Close()
 
-	buf := make([]byte, len(PJLMagic))
+	toRead := config.Printing.PJLMagicPrexixLength
+	fi, err := f.Stat()
+	if err != nil {
+		log.Fatal(err)
+	}
+	if fi.Size() < toRead {
+		toRead = fi.Size()
+	}
+
+	buf := make([]byte, toRead)
 	_, err = io.ReadFull(f, buf)
 	if err != nil {
 		return false
 	}
 
-	log.Debugf("print job magic is: %v", string(buf))
-	return PJLMagic == string(buf)
+	return strings.Contains(string(buf), PJLMagic)
 }
 
 func (j *job) CreatePDF(path string) {
