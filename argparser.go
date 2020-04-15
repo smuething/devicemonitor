@@ -28,6 +28,9 @@ type Config struct {
 	Paths struct {
 		TransferDir string `default:"h:\\ibest"`
 		LogFile     string `default:"w:\\printlog.txt"`
+		PDFDir      string `default:"h:\\ibest"`
+		PrintDir    string `default:"w:\\"`
+		PDFViewer   string `default:"c:\\Program Files\\Tracker Software\\PDF Viewer\\PDFXCview.exe"`
 		PDFPath     string `default:"h:\\ibest"`
 		PrintPath   string `default:"w:\\"`
 	}
@@ -233,13 +236,13 @@ func (j *job) PrintPDF() {
 		log.Fatal("Cannot print, PDF file has not been created yet")
 	}
 
-	cmd := exec.Command(PDFViewer, fmt.Sprintf(`/print:default&showui=no&printer="%s"`, j.printer), j.pdf)
+	cmd := exec.Command(config.Paths.PDFViewer, fmt.Sprintf(`/print:default&showui=no&printer="%s"`, j.printer), j.pdf)
 
 	// We have to manually build the command line, as Go messes up the second argument, which contains quotes
 	// somewhere in the middle of the argument
 	cmd.SysProcAttr = &syscall.SysProcAttr{}
 	cmd.SysProcAttr.CmdLine = strings.Join([]string{
-		escapeArgument(PDFViewer),
+		escapeArgument(config.Paths.PDFViewer),
 		fmt.Sprintf(`/print:default&showui=no&printer="%s"`, j.printer),
 		escapeArgument(j.pdf),
 	}, " ")
@@ -315,10 +318,10 @@ func (j *job) PrintPDFSelectPrinter() {
 		}
 	}()
 
-	cmd := exec.Command(PDFViewer, "/runjs:showui=no", js, j.pdf)
+	cmd := exec.Command(config.Paths.PDFViewer, "/runjs:showui=no", js, j.pdf)
 	cmd.SysProcAttr = &syscall.SysProcAttr{}
 	cmd.SysProcAttr.CmdLine = strings.Join([]string{
-		escapeArgument(PDFViewer),
+		escapeArgument(config.Paths.PDFViewer),
 		escapeArgument("/runjs:showui=no"),
 		escapeArgument(js),
 		escapeArgument(j.pdf),
@@ -388,7 +391,7 @@ func main() {
 	switch j.printer {
 	case "PDF":
 		log.Infof("Mode: Creating PDF and showing on screen")
-		j.CreatePDF(config.Paths.PDFPath)
+		j.CreatePDF(config.Paths.PDFDir)
 		j.ShowPDF()
 	case "Drucker wählen":
 		// As we don't know what kind of printer (local or TS redirected) the user will
@@ -397,7 +400,7 @@ func main() {
 		// works in Printfil, the settings picked in Printfil's printer selection dialog are
 		// directly discarded and the print job uses the default print settings.
 		log.Infof("Mode: Creating PDF and showing PDF viewer print dialog")
-		j.CreatePDF(config.Paths.PrintPath)
+		j.CreatePDF(config.Paths.PrintDir)
 		j.PrintPDFSelectPrinter()
 	default:
 		printViaPDF, err := regexp.MatchString(config.Printing.PrintViaPDFPattern, j.printer)
@@ -410,7 +413,7 @@ func main() {
 			// data to the TS client. The PCL stream does not survive this process, so
 			// we need to render to PDF and then print the PDF
 			log.Infof("Mode: printing via PDF to printer: %s", j.printer)
-			j.CreatePDF(config.Paths.PrintPath)
+			j.CreatePDF(config.Paths.PrintDir)
 			j.PrintPDF()
 		} else {
 			// We assume that all directly connected printers support PCL, so there's no point
