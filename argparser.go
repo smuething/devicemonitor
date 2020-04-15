@@ -64,7 +64,7 @@ var invalidChars = regexp.MustCompile(`[^-a-zA-Z0-9_=/.,:;%()?+*~\\]`)
 var extractPrinter = regexp.MustCompile(`%printer%(.*)`)
 
 // PJLMagic marker at start of PCL file with PJL commands
-const PJLMagic = `\x1b%-12345X@PJL`
+const PJLMagic = "\x1b%-12345X@PJL"
 
 // Shows an error message to users to alert them that something has gone wrong
 func fatalHandler() {
