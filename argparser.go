@@ -14,11 +14,42 @@ import (
 	"github.com/TheTitanrain/w32"
 	"github.com/alexbrainman/printer"
 	"github.com/hnakamur/w32syscall"
+	"github.com/koding/multiconfig"
+	"github.com/sanity-io/litter"
 	"github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
 	"github.com/sqweek/dialog"
 	prefixed "github.com/x-cray/logrus-prefixed-formatter"
 )
+
+// Config app configuration
+type Config struct {
+	Debug bool `default:"false"`
+	Paths struct {
+		TransferDir string `default:"h:\\ibest"`
+		LogFile     string `default:"w:\\printlog.txt"`
+		PDFPath     string `default:"h:\\ibest"`
+		PrintPath   string `default:"w:\\"`
+	}
+	Printing struct {
+		PrintViaPDFPattern string `default:"umgeleitet"`
+	}
+}
+
+var config = new(Config)
+
+// OptionalTOMLLoader Config loader that ignores missing files
+type OptionalTOMLLoader struct {
+	multiconfig.TOMLLoader
+}
+
+// Load config file if it exists, ignore otherwise
+func (l *OptionalTOMLLoader) Load(s interface{}) error {
+	if _, err := os.Stat(l.Path); err == nil {
+		return l.TOMLLoader.Load(s)
+	}
+	return nil
+}
 
 // Regex for checking if an argument needs to be quoted
 var invalidChars = regexp.MustCompile(`[^-a-zA-Z0-9_=/.,:;%()?+*~\\]`)
@@ -107,12 +138,10 @@ func newJob(args []string, logfile io.Writer) *job {
 	return &j
 }
 
-func (j *job) CreatePDF(export bool) {
+func (j *job) CreatePDF(path string) {
 
 	j.pdf = strings.TrimSuffix(j.input, filepath.Ext(j.input)) + ".pdf"
-	if export {
-		j.pdf = filepath.Join(`h:\ibest`, filepath.Base(j.pdf))
-	}
+	j.pdf = filepath.Join(path, filepath.Base(j.pdf))
 	log.Infof("Creating PDF file: %s", j.pdf)
 
 	// The wrapped executable must be late in the alphabet because Printfil picks the first executable it finds in the directory
@@ -301,7 +330,7 @@ func (j *job) PrintPDFSelectPrinter() {
 }
 
 func setupLogging() *os.File {
-	logfile, err := os.OpenFile("w:\\printlog.txt", os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
+	logfile, err := os.OpenFile(config.Paths.LogFile, os.O_APPEND|os.O_RDWR|os.O_CREATE, 0644)
 	if err != nil {
 		fatalHandler()
 		panic(err)
@@ -315,9 +344,7 @@ func setupLogging() *os.File {
 	log.SetOutput(logfile)
 	log.RegisterExitHandler(fatalHandler)
 
-	// Creating w:\debug.txt turns on debug logging for the current session
-	_, err = os.Stat(`w:\debug.txt`)
-	if !os.IsNotExist(err) {
+	if config.Debug {
 		log.SetLevel(log.DebugLevel)
 	} else {
 		log.SetLevel(log.InfoLevel)
@@ -325,10 +352,31 @@ func setupLogging() *os.File {
 	return logfile
 }
 
+func logConfig() {
+	dump := litter.Options{
+		HomePackage: "main",
+	}.Sdump(config)
+	log.Debugf("Configuration:\n%s", dump)
+}
+
 func main() {
+
+	m := multiconfig.NewWithPath("printing.toml")
+	m.Loader = multiconfig.MultiLoader(
+		&multiconfig.TagLoader{},
+		&multiconfig.TOMLLoader{Path: `\\muething.com\files\Daten\AM\Admin\printing.toml`},
+		&multiconfig.TOMLLoader{Path: `h:\am-config\printing.toml`},
+		&multiconfig.TOMLLoader{Path: `w:\printing.toml`},
+	)
+
+	m.MustLoad(config)
 
 	logfile := setupLogging()
 	defer logfile.Close()
+
+	if config.Debug {
+		logConfig()
+	}
 
 	log.WithFields(logrus.Fields{
 		"cmdline": strings.Join(os.Args, " "),
@@ -340,7 +388,7 @@ func main() {
 	switch j.printer {
 	case "PDF":
 		log.Infof("Mode: Creating PDF and showing on screen")
-		j.CreatePDF(true)
+		j.CreatePDF(config.Paths.PDFPath)
 		j.ShowPDF()
 	case "Drucker wählen":
 		// As we don't know what kind of printer (local or TS redirected) the user will
@@ -349,15 +397,20 @@ func main() {
 		// works in Printfil, the settings picked in Printfil's printer selection dialog are
 		// directly discarded and the print job uses the default print settings.
 		log.Infof("Mode: Creating PDF and showing PDF viewer print dialog")
-		j.CreatePDF(false)
+		j.CreatePDF(config.Paths.PrintPath)
 		j.PrintPDFSelectPrinter()
 	default:
-		if strings.Contains(j.printer, "umgeleitet") {
+		printViaPDF, err := regexp.MatchString(config.Printing.PrintViaPDFPattern, j.printer)
+		if err != nil {
+			log.Fatal(err)
+		}
+
+		if printViaPDF {
 			// Redirected printers go through some crazy hoops transmitting the print
 			// data to the TS client. The PCL stream does not survive this process, so
 			// we need to render to PDF and then print the PDF
-			log.Infof("Mode: directly printing to TS redirected printer: %s", j.printer)
-			j.CreatePDF(false)
+			log.Infof("Mode: printing via PDF to printer: %s", j.printer)
+			j.CreatePDF(config.Paths.PrintPath)
 			j.PrintPDF()
 		} else {
 			// We assume that all directly connected printers support PCL, so there's no point
