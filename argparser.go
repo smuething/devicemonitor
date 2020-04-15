@@ -31,11 +31,14 @@ type Config struct {
 		PDFDir      string `default:"h:\\ibest"`
 		PrintDir    string `default:"w:\\"`
 		PDFViewer   string `default:"c:\\Program Files\\Tracker Software\\PDF Viewer\\PDFXCview.exe"`
-		PDFPath     string `default:"h:\\ibest"`
-		PrintPath   string `default:"w:\\"`
+		GhostScript string `default:"gswin32c.exe"`
 	}
 	Printing struct {
 		PrintViaPDFPattern string `default:"umgeleitet"`
+		ScaleNonPJLJobs    bool   `default:"true"`
+		ScaledWidth        int    `default:"221"`
+		ScaledHeight       int    `default:"297"`
+		KeepUnscaledPDF    bool   `default:"false"`
 	}
 }
 
@@ -60,8 +63,8 @@ var invalidChars = regexp.MustCompile(`[^-a-zA-Z0-9_=/.,:;%()?+*~\\]`)
 // Regex for extracting printer name
 var extractPrinter = regexp.MustCompile(`%printer%(.*)`)
 
-// PDFViewer path to PDF viewer executable
-const PDFViewer = `c:\Program Files\Tracker Software\PDF Viewer\PDFXCview.exe`
+// PJLMagic marker at start of PCL file with PJL commands
+const PJLMagic = `\x1b%-12345X@PJL`
 
 // Shows an error message to users to alert them that something has gone wrong
 func fatalHandler() {
@@ -141,23 +144,59 @@ func newJob(args []string, logfile io.Writer) *job {
 	return &j
 }
 
+func (j *job) jobContainsPJL() bool {
+	f, err := os.Open(j.input)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer f.Close()
+
+	buf := make([]byte, len(PJLMagic))
+	_, err = io.ReadFull(f, buf)
+	if err != nil {
+		return false
+	}
+
+	log.Debugf("print job magic is: %v", string(buf))
+	return PJLMagic == string(buf)
+}
+
 func (j *job) CreatePDF(path string) {
 
 	j.pdf = strings.TrimSuffix(j.input, filepath.Ext(j.input)) + ".pdf"
 	j.pdf = filepath.Join(path, filepath.Base(j.pdf))
 	log.Infof("Creating PDF file: %s", j.pdf)
 
+	scalePDF := config.Printing.ScaleNonPJLJobs && !j.jobContainsPJL()
+	unscaledPDF := strings.TrimSuffix(j.input, filepath.Ext(j.input)) + "-unscaled.pdf"
+	var scaleArgs []string
+	if scalePDF {
+		log.Infof("Assuming an oversized list, scaling from %d x %d mm to A4", config.Printing.ScaledWidth, config.Printing.ScaledHeight)
+	}
+
 	// The wrapped executable must be late in the alphabet because Printfil picks the first executable it finds in the directory
 	executable := filepath.Join(filepath.Dir(os.Args[0]), "zzz-wrapped-"+filepath.Base(os.Args[0]))
 	log.Debugf("Wrapped executable: %s", executable)
 
 	cmd := exec.Command(executable)
-	cmd.Stdin = os.Stdin
 	cmd.Stdout = j.logfile
 	cmd.Stderr = j.logfile
 
 	j.args[j.deviceArg] = "-sDEVICE=pdfwrite"
-	j.args[j.outputArg] = fmt.Sprintf("-sOutputFile=%s", j.pdf)
+
+	if scalePDF {
+		log.Debugf("Creating intermediate PDF file %s with nonstandard format %d x %d mm", unscaledPDF, config.Printing.ScaledWidth, config.Printing.ScaledHeight)
+		scaleArgs = append(j.args[:0:0], j.args...)
+		j.args = append(j.args, j.input)
+		// GhostPCL wants dimensions in dots, and uses 720 DPI by default
+		// our configuration uses mm for the dimensions
+		width := int(float64(config.Printing.ScaledWidth) * (720.0 / 25.4))
+		height := int(float64(config.Printing.ScaledHeight) * (720.0 / 25.4))
+		j.args[len(j.args)-2] = fmt.Sprintf("-g%dx%d", width, height)
+		j.args[j.outputArg] = fmt.Sprintf("-sOutputFile=%s", unscaledPDF)
+	} else {
+		j.args[j.outputArg] = fmt.Sprintf("-sOutputFile=%s", j.pdf)
+	}
 
 	// Go messes up the command line, so we have to build it ourselves
 	cmd.SysProcAttr = &syscall.SysProcAttr{}
@@ -168,6 +207,47 @@ func (j *job) CreatePDF(path string) {
 	err := cmd.Run()
 	if err != nil {
 		log.Fatal(err)
+	}
+
+	if scalePDF {
+
+		if config.Printing.KeepUnscaledPDF {
+			log.Debugf("Intermediate PDF %s will be kept", unscaledPDF)
+		} else {
+			log.Debugf("Intermediate PDF %s will be deleted", unscaledPDF)
+			defer os.Remove(unscaledPDF)
+		}
+
+		log.Debugf("Scaling intermediate PDF %s to DIN A4", unscaledPDF)
+		// Now we have to feed the generated PDF through Ghostscript to scale it to A4
+		ghostscript := config.Paths.GhostScript
+		// If no absolute path is given, we look for it in the GhostPCL directory
+		if !filepath.IsAbs(ghostscript) {
+			ghostscript = filepath.Join(filepath.Dir(os.Args[0]), ghostscript)
+		}
+
+		cmd = exec.Command(ghostscript)
+
+		// Ghostscript is rather chatty, so we only log its output in debug mode
+		if config.Debug {
+			cmd.Stdout = j.logfile
+			cmd.Stderr = j.logfile
+		}
+
+		scaleArgs[0] = ghostscript
+		scaleArgs = append(scaleArgs, unscaledPDF)
+		scaleArgs[j.outputArg] = fmt.Sprintf("-sOutputFile=%s", j.pdf)
+		scaleArgs[len(scaleArgs)-2] = "-dPDFFitPage"
+
+		cmd.SysProcAttr = &syscall.SysProcAttr{}
+		cmdLine = buildCmdLine(scaleArgs)
+		cmd.SysProcAttr.CmdLine = cmdLine
+		log.Debugf("Calling ghostscript with cmdline: %s", cmdLine)
+
+		err = cmd.Run()
+		if err != nil {
+			log.Fatal(err)
+		}
 	}
 }
 
