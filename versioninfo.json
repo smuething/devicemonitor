@@ -1,0 +1,50 @@
+{
+	"FixedFileInfo":
+	{
+		"FileVersion": {
+			"Major": 1,
+			"Minor": 0,
+			"Patch": 0,
+			"Build": 0
+		},
+		"ProductVersion": {
+			"Major": 1,
+			"Minor": 0,
+			"Patch": 0,
+			"Build": 0
+		},
+		"FileFlagsMask": "3f",
+		"FileFlags ": "00",
+		"FileOS": "40004",
+		"FileType": "01",
+		"FileSubType": "00"
+	},
+	"StringFileInfo":
+	{
+		"Comments": "",
+		"CompanyName": "Müthing GmbH & Co. KG",
+		"FileDescription": "",
+		"FileVersion": "",
+		"InternalName": "",
+		"LegalCopyright": "Müthing GmbH & Co. KG",
+		"LegalTrademarks": "",
+		"OriginalFilename": "",
+		"PrivateBuild": "",
+		"ProductName": "AM Druckverwaltung",
+		"ProductVersion": "1.0",
+		"SpecialBuild": ""
+	},
+	"VarFileInfo":
+	{
+		"Translation": {
+			"LangID": "0407",
+			"CharsetID": "04B0"
+		}
+    },
+    "ManifestPath": "printmanager.manifest",
+    "IconPath": [
+        "assets/printer-basic.ico",
+        "assets/printer-green.ico",
+        "assets/printer-red-right.ico"
+    ]
+}
