@@ -1,3 +1,2 @@
-argparser.exe
-arglog.txt
+*.exe
 vendor/
