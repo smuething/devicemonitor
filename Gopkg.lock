@@ -137,9 +137,12 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:9e0a0c100ba01192703abd050fc405c7333ac02a04fa88baa5d174a925a8988a"
+  digest = "1:e5890a533d2ab4097d4cabce87da12c0502f0d7737f198d5bb8f56e81aacd5bf"
   name = "github.com/lxn/walk"
-  packages = ["."]
+  packages = [
+    ".",
+    "declarative",
+  ]
   pruneopts = "UT"
   revision = "10b5738d1875b4f57d91bbba5b6df75fef33562c"
   source = "github.com/smuething/walk"
@@ -210,11 +213,11 @@
 
 [[projects]]
   branch = "master"
-  digest = "1:610e9e1d996a7177756cb8c861cb9f880a712a0e32988b3117008ca746b742e4"
+  digest = "1:1440208a4a818c8c701818824199eb2d2b9c57f7be8aa6d6ed3f3ca70c74b693"
   name = "github.com/smuething/systray"
   packages = ["."]
   pruneopts = "UT"
-  revision = "5f4b16ebaa5850f62fb36f958c18db62830ee73c"
+  revision = "d04f5f5372649757044bb1bf864427e6b92b9d68"
 
 [[projects]]
   branch = "master"
@@ -279,6 +282,7 @@
     "github.com/hnakamur/w32syscall",
     "github.com/koding/multiconfig",
     "github.com/lxn/walk",
+    "github.com/lxn/walk/declarative",
     "github.com/lxn/win",
     "github.com/rjeczalik/notify",
     "github.com/sanity-io/litter",

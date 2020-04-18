@@ -52,7 +52,7 @@ func StringToUTF16Ptr(str string) *uint16 {
 	return &wchars[0]
 }
 
-func QueryDosDevice(device string) (target string, err error) {
+func QueryDosDevice(device string) (targets []string, err error) {
 
 	log.Tracef("Querying DOS device: %s", device)
 
@@ -71,18 +71,27 @@ func QueryDosDevice(device string) (target string, err error) {
 	}
 
 	err = nil
-	target = string(utf16.Decode(buf[:int(r)]))
 
-	log.Tracef("DOS device %s -> %s", device, target)
+	start := 0
+	for i, v := range buf[:int(r)] {
+		if v == 0 {
+			targets = append(targets, windows.UTF16ToString(buf[start:i]))
+			start = i + 1
+		}
+	}
+
+	log.Tracef("DOS device %s -> %v", device, targets)
 	return
 
 }
 
-func DefineDosDevice(device string, target string, remove bool, broadcast bool) (err error) {
+func DefineDosDevice(device string, target string, normalizeTarget bool, remove bool, broadcast bool) (err error) {
 
-	target, err = fixLongPath(target)
-	if err != nil {
-		return
+	if normalizeTarget {
+		target, err = fixLongPath(target)
+		if err != nil {
+			return
+		}
 	}
 
 	var flags uint32 = DDD_RAW_TARGET_PATH
