@@ -45,6 +45,7 @@
     "IconPath": [
         "assets/printer-basic.ico",
         "assets/printer-green.ico",
+        "assets/printer-yellow-middle.ico",
         "assets/printer-red-right.ico"
     ]
 }
