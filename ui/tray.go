@@ -3,20 +3,51 @@ package ui
 import (
 	"fmt"
 
+	"github.com/alexbrainman/printer"
 	"github.com/lxn/walk"
 )
+
+type deviceTarget struct {
+	name      string
+	active    bool
+	separator bool
+}
+
+type DeviceMenu struct {
+	*walk.Menu
+	action   *walk.Action
+	Selected chan string
+	active   *walk.Action
+	entries  map[string]*walk.Action
+}
+
+func NewDeviceMenu() (*DeviceMenu, error) {
+
+	menu := &DeviceMenu{
+		Selected: make(chan string),
+		entries:  make(map[string]*walk.Action),
+	}
+
+	var err error
+	menu.Menu, err = walk.NewMenu()
+	if err != nil {
+		return nil, err
+	}
+
+	return menu, nil
+}
 
 type Tray struct {
 	*walk.NotifyIcon
 
 	mw      *walk.MainWindow
-	devices map[string]*walk.Action
+	devices map[string]*DeviceMenu
 }
 
 func NewTray(mainWindow *walk.MainWindow) (*Tray, error) {
 	tray := &Tray{
 		mw:      mainWindow,
-		devices: make(map[string]*walk.Action),
+		devices: make(map[string]*DeviceMenu),
 	}
 
 	var err error
@@ -38,10 +69,12 @@ func (tray *Tray) setup() error {
 	tray.SetIcon(icon)
 	tray.SetVisible(true)
 
-	action := walk.NewAction()
-	action.SetText("Über Druckverwaltung")
-	tray.ContextMenu().Actions().Add(action)
+	var action *walk.Action
+
 	action = walk.NewSeparatorAction()
+	tray.ContextMenu().Actions().Add(action)
+	action = walk.NewAction()
+	action.SetText("Über Druckverwaltung")
 	tray.ContextMenu().Actions().Add(action)
 	action = walk.NewAction()
 	action.SetText("Beenden")
@@ -52,5 +85,78 @@ func (tray *Tray) setup() error {
 	})
 	tray.ContextMenu().Actions().Add(action)
 
+	tray.update()
+
 	return nil
+}
+
+func (tray *Tray) update() error {
+
+	menu, err := NewDeviceMenu()
+	if err != nil {
+		return err
+	}
+
+	options := []deviceTarget{
+		{"PDF", false, false},
+		{"Drucker wählen", false, false},
+		{separator: true},
+	}
+
+	printers, _ := printer.ReadNames()
+	defaultPrinter, _ := printer.Default()
+	for _, printer := range printers {
+		options = append(options, deviceTarget{name: printer, active: printer == defaultPrinter})
+	}
+
+	for _, option := range options {
+		if option.separator {
+			action := walk.NewSeparatorAction()
+			menu.Actions().Add(action)
+			continue
+		}
+		target := option.name
+		if _, found := menu.entries[target]; found {
+			return fmt.Errorf("Duplicate menu entry: %s", target)
+		}
+		action := walk.NewAction()
+		action.SetText(target)
+		action.SetCheckable(true)
+		if option.active {
+			if menu.action != nil {
+				return fmt.Errorf("Cannot have more than one active option")
+			}
+			menu.active = action
+		}
+		action.SetChecked(option.active)
+		action.Triggered().Attach(func() {
+			if menu.active != nil && menu.active != action {
+				menu.active.SetChecked(false)
+			}
+			action.SetChecked(true)
+			menu.active = action
+			select {
+			case menu.Selected <- target:
+			default:
+				// Ignore if no receiver
+			}
+		})
+		menu.Actions().Add(action)
+		menu.entries[option.name] = action
+	}
+
+	tray.mw.Disposing().Attach(func() {
+		// avoid leaking the channel and stalling listening goroutines
+		close(menu.Selected)
+	})
+
+	menu.action, err = tray.ContextMenu().Actions().InsertMenu(0, menu.Menu)
+	if err != nil {
+		return err
+	}
+	menu.action.SetText("LPT1")
+	tray.devices["LPT1"] = menu
+
+	return err
+
 }

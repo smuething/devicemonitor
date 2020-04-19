@@ -14,6 +14,7 @@ import (
 	"sync"
 
 	"github.com/lxn/walk"
+	log "github.com/sirupsen/logrus"
 )
 
 func ShowError(owner walk.Form, title, message string) {
@@ -40,6 +41,12 @@ func RunUI() {
 
 	tray, err := NewTray(mainWindow)
 	defer tray.Dispose()
+
+	go func() {
+		for target := range tray.devices["LPT1"].Selected {
+			log.Infof("Selected target: %s", target)
+		}
+	}()
 
 	mainWindow.Run()
 
