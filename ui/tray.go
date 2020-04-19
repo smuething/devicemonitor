@@ -90,12 +90,17 @@ func (tray *Tray) setup() error {
 	return nil
 }
 
-func (tray *Tray) update() error {
+func (tray *Tray) update() (err error) {
 
 	menu, err := NewDeviceMenu()
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if err != nil {
+			menu.Dispose()
+		}
+	}()
 
 	options := []deviceTarget{
 		{"PDF", false, false},
