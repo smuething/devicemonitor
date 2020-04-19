@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/rjeczalik/notify"
@@ -143,6 +144,7 @@ func (q *Queue) startJob() (*Job, error) {
 		File:    filepath.Join(filepath.Dir(q.File), "foo.txt"),
 		Printer: q.Settings.Get("printer"),
 	}
+	q.monitor.updateSpooling(1)
 	return q.job, nil
 }
 
@@ -237,6 +239,7 @@ func (j *Job) submit() {
 
 	if j.submitted {
 		j.queue.resetLocked(true)
+		j.queue.monitor.updateSpooling(-1)
 	}
 
 }
@@ -244,9 +247,11 @@ func (j *Job) submit() {
 type JobValidationFunc func(*os.File) bool
 
 type Monitor struct {
+	active   int64 // This has to be first to guarantee alignment for the atomic updates
 	m        sync.Mutex
 	path     string
 	state    state
+	spooling chan int
 	fsEvents chan notify.EventInfo
 	queues   map[string]*Queue
 	jobs     chan *Job
@@ -258,6 +263,7 @@ func NewMonitor(path string, isValid JobValidationFunc) *Monitor {
 		path:     path,
 		state:    valid,
 		fsEvents: make(chan notify.EventInfo, 10),
+		spooling: make(chan int, 1),
 		queues:   make(map[string]*Queue),
 		jobs:     make(chan *Job, 1),
 		isValid:  isValid,
@@ -270,6 +276,18 @@ func (m *Monitor) Path() string {
 
 func (m *Monitor) Jobs() <-chan *Job {
 	return m.jobs
+}
+
+func (m *Monitor) Spooling() <-chan int {
+	return m.spooling
+}
+
+func (m *Monitor) updateSpooling(delta int) {
+	new := int(atomic.AddInt64(&(m.active), int64(delta)))
+	select {
+	case m.spooling <- new:
+	default:
+	}
 }
 
 func (m *Monitor) AddLPTPort(port int, name string) (queue *Queue, err error) {
@@ -303,6 +321,15 @@ func (m *Monitor) AddLPTPort(port int, name string) (queue *Queue, err error) {
 
 // Start TODO
 func (m *Monitor) Start(ctx context.Context) error {
+
+	defer func() {
+		if m.state != stopped {
+			m.state = invalid
+		}
+	}()
+
+	defer close(m.jobs)
+	defer close(m.spooling)
 
 	if m.state != valid {
 		return fmt.Errorf("Cannot start monitor with state %s", m.state)
