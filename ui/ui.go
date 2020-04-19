@@ -14,8 +14,8 @@ import (
 	"sync"
 
 	"github.com/lxn/walk"
-	log "github.com/sirupsen/logrus"
 	"github.com/smuething/devicemonitor/app"
+	"github.com/smuething/devicemonitor/monitor"
 )
 
 func ShowError(owner walk.Form, title, message string) {
@@ -43,14 +43,15 @@ func RunUI() {
 	tray, err := NewTray(mainWindow)
 	defer tray.Dispose()
 
-	app.Go(func() {
-		device, ok := tray.devices["LPT1"]
-		if !ok {
-			return
+	app.GoWithError(func() error {
+		monitor := monitor.NewMonitor(`w:\spool`, nil)
+
+		_, err := monitor.AddLPTPort(1, "Formulare")
+		if err != nil {
+			return err
 		}
-		for target := range device.Selected {
-			log.Infof("Selected target: %s", target)
-		}
+
+		return monitor.Start(app.Context())
 	})
 
 	mainWindow.Run()
