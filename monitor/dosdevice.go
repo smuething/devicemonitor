@@ -5,26 +5,10 @@ package monitor
 import (
 	"path/filepath"
 	"strings"
-	"unicode/utf16"
-	"unsafe"
 
 	"golang.org/x/sys/windows"
 
 	log "github.com/sirupsen/logrus"
-)
-
-const (
-	DDD_RAW_TARGET_PATH       = 0x00000001
-	DDD_REMOVE_DEFINITION     = 0x00000002
-	DDD_EXACT_MATCH_ON_REMOVE = 0x00000004
-	DDD_NO_BROADCAST_SYSTEM   = 0x00000008
-)
-
-var (
-	modkernel32 = windows.NewLazySystemDLL("kernel32.dll")
-
-	procDefineDosDeviceW = modkernel32.NewProc("DefineDosDeviceW")
-	procQueryDosDevice   = modkernel32.NewProc("QueryDosDeviceW")
 )
 
 func fixLongPath(name string) (absolutePath string, err error) {
@@ -47,33 +31,25 @@ func fixLongPath(name string) (absolutePath string, err error) {
 	return
 }
 
-func StringToUTF16Ptr(str string) *uint16 {
-	wchars := utf16.Encode([]rune(str + "\x00"))
-	return &wchars[0]
-}
-
 func QueryDosDevice(device string) (targets []string, err error) {
 
 	log.Tracef("Querying DOS device: %s", device)
 
-	var BUFSIZE uint32 = 2048
-	var buf []uint16 = make([]uint16, BUFSIZE)
-	var buffer *uint16 = &buf[0]
-
-	r, _, err := procQueryDosDevice.Call(
-		uintptr(unsafe.Pointer(StringToUTF16Ptr(device))),
-		uintptr(unsafe.Pointer(buffer)),
-		uintptr(BUFSIZE),
-	)
-
-	if err != windows.ERROR_SUCCESS {
+	bufSize := uint32(2048)
+	buf := make([]uint16, bufSize)
+	device_, err := windows.UTF16PtrFromString(device)
+	if err != nil {
 		return
 	}
 
-	err = nil
+	n, err := windows.QueryDosDevice(device_, &buf[0], bufSize)
+
+	if err != nil {
+		return
+	}
 
 	start := 0
-	for i, v := range buf[:int(r)] {
+	for i, v := range buf[:n] {
 		if v == 0 {
 			targets = append(targets, windows.UTF16ToString(buf[start:i]))
 			start = i + 1
@@ -94,23 +70,22 @@ func DefineDosDevice(device string, target string, normalizeTarget bool, remove 
 		}
 	}
 
-	var flags uint32 = DDD_RAW_TARGET_PATH
+	var flags uint32 = windows.DDD_RAW_TARGET_PATH
 	if remove {
-		flags |= DDD_REMOVE_DEFINITION | DDD_EXACT_MATCH_ON_REMOVE
+		flags |= windows.DDD_REMOVE_DEFINITION | windows.DDD_EXACT_MATCH_ON_REMOVE
 	}
 	if !broadcast {
-		flags |= DDD_NO_BROADCAST_SYSTEM
+		flags |= windows.DDD_NO_BROADCAST_SYSTEM
 	}
 
-	_, _, err = procDefineDosDeviceW.Call(
-		uintptr(flags),
-		uintptr(unsafe.Pointer(StringToUTF16Ptr(device))),
-		uintptr(unsafe.Pointer(StringToUTF16Ptr(target))),
-	)
-
-	if err == windows.ERROR_SUCCESS {
-		err = nil
+	device_, err := windows.UTF16PtrFromString(device)
+	if err != nil {
+		return err
+	}
+	target_, err := windows.UTF16PtrFromString(target)
+	if err != nil {
+		return err
 	}
 
-	return
+	return windows.DefineDosDevice(flags, device_, target_)
 }
