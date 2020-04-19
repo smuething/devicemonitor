@@ -4,22 +4,39 @@ import (
 	"crypto/md5"
 	"fmt"
 	"io/ioutil"
+	"net/http"
+	_ "net/http/pprof"
 	"os"
+	"os/signal"
 	"path/filepath"
+	"runtime"
 	"runtime/debug"
 	"strconv"
-	"sync/atomic"
-
-	"runtime"
 	"sync"
+	"sync/atomic"
+	"syscall"
 
 	"github.com/lxn/walk"
+	log "github.com/sirupsen/logrus"
 	"github.com/smuething/devicemonitor/app"
 	"github.com/smuething/devicemonitor/monitor"
 )
 
 func ShowError(owner walk.Form, title, message string) {
 	walk.MsgBox(owner, title, message, walk.MsgBoxIconError|walk.MsgBoxSystemModal)
+}
+
+type displayErrorHook struct{}
+
+func (displayErrorHook) Levels() []log.Level {
+	return []log.Level{log.PanicLevel, log.FatalLevel, log.ErrorLevel}
+}
+
+func (displayErrorHook) Fire(entry *log.Entry) error {
+	app.Go(func() {
+		ShowError(nil, "Fehler", entry.Message)
+	})
+	return nil
 }
 
 func RunUI() {
@@ -53,6 +70,26 @@ func RunUI() {
 
 		return monitor.Start(app.Context())
 	})
+
+	c := make(chan os.Signal)
+	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	app.Go(func() {
+		ctx := app.Context()
+		select {
+		case <-c:
+			log.Infof("Received SIGTERM, shutting down")
+			mainWindow.Synchronize(func() {
+				walk.App().Exit(0)
+			})
+		case <-ctx.Done():
+		}
+	})
+
+	go func() {
+		log.Println(http.ListenAndServe(":6060", nil))
+	}()
+
+	log.AddHook(displayErrorHook{})
 
 	mainWindow.Run()
 
