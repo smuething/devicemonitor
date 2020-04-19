@@ -5,13 +5,37 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/rjeczalik/notify"
 	log "github.com/sirupsen/logrus"
+	"github.com/smuething/devicemonitor/app"
 )
 
-var jobCh chan Job = make(chan Job, 1)
+type state int
+
+const (
+	invalid = iota
+	valid
+	running
+	stopped
+)
+
+func (s state) String() string {
+	switch s {
+	case invalid:
+		return "invalid"
+	case valid:
+		return "valid"
+	case running:
+		return "running"
+	case stopped:
+		return "stopped"
+	default:
+		return fmt.Sprintf("UNKNOWN STATE: %d", s)
+	}
+}
 
 type Settings interface {
 	Get(name string) string
@@ -27,61 +51,223 @@ func (d *dummySettings) Get(string) string {
 func (d *dummySettings) Set(string, string) {}
 
 type Job struct {
+	m       sync.Mutex
 	Name    string
-	Queue   *Queue
+	queue   *Queue
 	File    string
 	Printer string
+	submit  bool
 }
 
 type Queue struct {
+	m            sync.Mutex
 	Device       string
 	File         string
 	Name         string
 	Settings     Settings
-	Job          *Job
-	LastActivity time.Time
+	state        state
+	job          *Job
+	lastActivity time.Time
+	timeout      time.Duration
+	monitor      *Monitor
 }
 
-func (q Queue) Active() bool {
-	return q.Job != nil
+func (q *Queue) IsSpooling() bool {
+	return q.job != nil
 }
 
-func (q *Queue) StartJob() (*Job, error) {
-	if q.Active() {
+func (q *Queue) devicePath() string {
+	return `\??\` + q.File
+}
+
+func (q *Queue) start() error {
+	q.m.Lock()
+	defer q.m.Unlock()
+
+	if q.state != valid {
+		return fmt.Errorf("Cannot start queue %s in state %s", q.Name, q.state)
+	}
+
+	err := q.resetLocked(false)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		if q.state != running {
+			os.Remove(q.File)
+		}
+	}()
+
+	err = DefineDosDevice(q.Device, q.devicePath(), false, false, false)
+	if err != nil {
+		return err
+	}
+
+	q.state = running
+	log.Infof("Started queue for %s", q.File)
+
+	return nil
+}
+
+func (q *Queue) stop() {
+	q.m.Lock()
+	defer q.m.Unlock()
+
+	if q.state == running {
+		err := DefineDosDevice(q.Device, q.devicePath(), false, true, true)
+		if err != nil {
+			log.Error(err)
+		}
+		err = os.Remove(q.File)
+		if err != nil && !os.IsNotExist(err) {
+			log.Error(err)
+		}
+		q.state = stopped
+
+		log.Infof("Stopped queue for %s", q.File)
+	}
+}
+
+func (q *Queue) startJob() (*Job, error) {
+
+	q.m.Lock()
+	defer q.m.Unlock()
+
+	if q.IsSpooling() {
 		return nil, fmt.Errorf("Queue %s already has a job", q.Name)
 	}
 
-	q.Job = &Job{
+	q.job = &Job{
 		Name:    "foo",
-		Queue:   q,
+		queue:   q,
 		File:    filepath.Join(filepath.Dir(q.File), "foo.txt"),
 		Printer: q.Settings.Get("printer"),
 	}
-	return q.Job, nil
+	return q.job, nil
 }
 
-func (q *Queue) SubmitJob() {
-	jobCh <- *q.Job
-	q.Job = nil
+func (q *Queue) reset(submitJob bool) error {
+	q.m.Lock()
+	defer q.m.Unlock()
+	return q.resetLocked(submitJob)
 }
 
-type Monitor struct {
-	Path   string
-	PathCh chan notify.EventInfo
-	StopCh chan struct{}
-	Queues map[string]Queue
+func (q *Queue) resetLocked(submitJob bool) error {
+
+	// We have to actually remove the file instead of relying on os.Create()
+	// to truncate it because there could be an active job whose file is
+	// hardlinked to the spool file, and we need to break that connection
+	err := os.Remove(q.File)
+	if !os.IsNotExist(err) {
+		return err
+	}
+
+	if submitJob && q.job != nil && q.job.submit {
+		q.monitor.jobs <- *q.job
+		q.job = nil
+	}
+
+	// Create empty spool file
+	f, err := os.Create(q.File)
+	if err != nil {
+		return err
+	}
+	f.Close()
+	return nil
 }
 
-func NewMonitor(path string, stopCh chan struct{}) *Monitor {
-	return &Monitor{
-		Path:   path,
-		PathCh: make(chan notify.EventInfo, 10),
-		StopCh: stopCh,
-		Queues: make(map[string]Queue),
+func (q *Queue) submitJob() {
+	q.m.Lock()
+	defer q.m.Unlock()
+
+	if q.job != nil {
+		app.Go(q.job.Submit)
 	}
 }
 
-func (m *Monitor) AddLPTPort(port int, name string) (queue Queue, err error) {
+func (j *Job) Submit() {
+
+	j.m.Lock()
+	defer j.m.Unlock()
+
+	if j.submit {
+		return
+	}
+
+	err := os.Link(j.queue.File, j.File)
+	if !os.IsExist(err) {
+		panic(err)
+	}
+
+	if j.queue.monitor.isValid != nil {
+
+		f, err := os.Open(j.File)
+		if err != nil {
+			panic(err)
+		}
+		defer f.Close()
+
+		fi, err := f.Stat()
+		if err != nil {
+			panic(err)
+		}
+
+		if j.queue.monitor.isValid(f) {
+			fi2, err := f.Stat()
+			if err != nil {
+				panic(err)
+			}
+
+			fmt.Println(fi, fi2)
+
+			if !fi2.ModTime().After(fi.ModTime()) {
+				j.submit = true
+			}
+
+		}
+
+	} else {
+		j.submit = true
+	}
+
+	if j.submit {
+		j.queue.reset(true)
+	}
+
+}
+
+type JobValidationFunc func(*os.File) bool
+
+type Monitor struct {
+	m        sync.Mutex
+	path     string
+	state    state
+	fsEvents chan notify.EventInfo
+	queues   map[string]*Queue
+	jobs     chan Job
+	isValid  JobValidationFunc
+}
+
+func NewMonitor(path string, isValid JobValidationFunc) *Monitor {
+	return &Monitor{
+		path:     path,
+		state:    valid,
+		fsEvents: make(chan notify.EventInfo, 10),
+		queues:   make(map[string]*Queue),
+		jobs:     make(chan Job, 1),
+		isValid:  isValid,
+	}
+}
+
+func (m *Monitor) Path() string {
+	return m.path
+}
+
+func (m *Monitor) Jobs() <-chan Job {
+	return m.jobs
+}
+
+func (m *Monitor) AddLPTPort(port int, name string) (queue *Queue, err error) {
 
 	device := fmt.Sprintf("LPT%d", port)
 
@@ -90,82 +276,92 @@ func (m *Monitor) AddLPTPort(port int, name string) (queue Queue, err error) {
 		return
 	}
 
-	file := filepath.Join(m.Path, fmt.Sprintf("lptport%d.txt", port))
-	if _, found := m.Queues[file]; found {
+	file := filepath.Join(m.path, fmt.Sprintf("lpt-%d.txt", port))
+	if _, found := m.queues[file]; found {
 		err = fmt.Errorf("Cannot add %s, already monitoring", device)
 		return
 	}
 
-	m.Queues[file] = Queue{
+	m.queues[file] = &Queue{
 		Device:   device,
 		File:     file,
 		Name:     name,
 		Settings: &dummySettings{},
+		state:    valid,
+		monitor:  m,
+		timeout:  300 * time.Millisecond,
 	}
 
-	queue = m.Queues[file]
+	queue = m.queues[file]
 	return
 }
 
 // Start TODO
-func (m *Monitor) Start(ctx context.Context) {
+func (m *Monitor) Start(ctx context.Context) error {
 
-	for _, queue := range m.Queues {
-		targetPath := `\??\` + queue.File
-		err := DefineDosDevice(queue.Device, targetPath, false, false, true)
+	if m.state != valid {
+		return fmt.Errorf("Cannot start monitor with state %s", m.state)
+	}
+
+	log.Infof("Starting monitor in directory %s", m.path)
+
+	err := os.MkdirAll(m.path, 0755)
+	if err != nil {
+		return err
+	}
+
+	for file, queue := range m.queues {
+		log.Infof("Starting queue %s", file)
+		err = queue.start()
 		if err != nil {
-			panic(err)
+			return err
 		}
-		defer DefineDosDevice(queue.Device, targetPath, false, true, true)
+		defer queue.stop()
 	}
 
-	if err := notify.Watch(m.Path, m.PathCh, notify.Write); err != nil {
-		panic(err)
+	if err = notify.Watch(m.path, m.fsEvents, notify.Write); err != nil {
+		return err
 	}
-	defer notify.Stop(m.PathCh)
+	defer notify.Stop(m.fsEvents)
 
 	ticker := time.NewTicker(200 * time.Millisecond)
 	defer ticker.Stop()
 
-	timeout := 300 * time.Millisecond
+	m.state = running
 
 	for {
 		select {
 		case <-ctx.Done():
-			return
-		case ei := <-m.PathCh:
+			m.state = stopped
+			return nil
+		case ei := <-m.fsEvents:
 			file := filepath.Base(ei.Path())
-			if queue, found := m.Queues[file]; found {
+			if queue, found := m.queues[file]; found {
 				log.Infof("Event %s for queue %s", ei, queue.Name)
 				if ei.Event() == notify.Write {
-					if !queue.Active() {
+					if !queue.IsSpooling() {
 						if fi, err := os.Stat(queue.File); err != nil {
 							log.Error(err)
 							break
 						} else {
 							if fi.Size() == 0 {
+								// spurious write event from creation of spool file
 								break
 							}
 						}
 						log.Infof("Started new job for queue %s", queue.Name)
-						queue.StartJob()
-						queue.LastActivity = time.Now()
+						queue.startJob()
+						queue.lastActivity = time.Now()
 					} else {
-						queue.LastActivity = time.Now()
+						queue.lastActivity = time.Now()
 					}
 				}
 			}
 		case <-ticker.C:
-			for file, queue := range m.Queues {
-				if time.Since(queue.LastActivity) > timeout {
+			for file, queue := range m.queues {
+				if time.Since(queue.lastActivity) > queue.timeout {
 					log.Infof("Job complete for queue %s", file)
-					os.Rename(queue.File, queue.File+"done")
-					f, err := os.Create(queue.File)
-					if err != nil {
-						panic(err)
-					}
-					f.Close()
-					queue.SubmitJob()
+					queue.submitJob()
 				}
 			}
 		}
