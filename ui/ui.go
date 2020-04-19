@@ -54,14 +54,40 @@ func RunUI() {
 	tray, err := NewTray(mainWindow)
 	defer tray.Dispose()
 
-	app.GoWithError(func() error {
-		monitor := monitor.NewMonitor(`w:\spool`, nil)
+	monitor := monitor.NewMonitor(`w:\spool`, nil)
 
-		_, err := monitor.AddLPTPort(1, "Formulare")
-		if err != nil {
-			return err
+	_, err = monitor.AddLPTPort(1, "Formulare")
+	if err != nil {
+		panic(err)
+	}
+
+	app.Go(func() {
+		previous := 0
+		for active := range monitor.Spooling() {
+			if active != previous {
+				id := ""
+				if active > 0 && previous == 0 {
+					id = "8"
+				}
+				if previous > 0 && active == 0 {
+					id = "2"
+				}
+				if id != "" {
+					icon, err := walk.Resources.Icon(id)
+					if err != nil {
+						log.Fatal(err)
+					}
+					err = tray.SetIcon(icon)
+					if err != nil {
+						log.Fatal(err)
+					}
+				}
+				previous = active
+			}
 		}
+	})
 
+	app.GoWithError(func() error {
 		return monitor.Start(app.Context())
 	})
 
