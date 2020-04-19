@@ -69,7 +69,17 @@ func (tray *Tray) setup() error {
 	tray.SetIcon(icon)
 	tray.SetVisible(true)
 
+	tray.addDeviceMenu()
+
 	var action *walk.Action
+
+	if len(tray.devices) == 0 {
+		action = walk.NewAction()
+		action.SetText("Keine Geräte")
+		action.SetCheckable(false)
+		action.SetDefault(true)
+		tray.ContextMenu().Actions().Add(action)
+	}
 
 	action = walk.NewSeparatorAction()
 	tray.ContextMenu().Actions().Add(action)
@@ -85,12 +95,10 @@ func (tray *Tray) setup() error {
 	})
 	tray.ContextMenu().Actions().Add(action)
 
-	tray.update()
-
 	return nil
 }
 
-func (tray *Tray) update() (err error) {
+func (tray *Tray) addDeviceMenu() (err error) {
 
 	menu, err := NewDeviceMenu()
 	if err != nil {
@@ -129,7 +137,7 @@ func (tray *Tray) update() (err error) {
 		action.SetCheckable(true)
 		if option.active {
 			if menu.action != nil {
-				return fmt.Errorf("Cannot have more than one active option")
+				return fmt.Errorf("Cannot have more than one active device target")
 			}
 			menu.active = action
 		}
@@ -148,6 +156,10 @@ func (tray *Tray) update() (err error) {
 		})
 		menu.Actions().Add(action)
 		menu.entries[option.name] = action
+	}
+
+	if menu.active == nil {
+		return fmt.Errorf("Must have an active device target")
 	}
 
 	tray.mw.Disposing().Attach(func() {
