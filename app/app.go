@@ -24,6 +24,17 @@ func Go(f func()) {
 	}()
 }
 
+func GoWithError(f func() error) {
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		err := f()
+		if err != nil {
+			panic(err)
+		}
+	}()
+}
+
 func Shutdown(ctx context.Context) bool {
 
 	cancel()
