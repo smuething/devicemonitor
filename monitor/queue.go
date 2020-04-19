@@ -51,12 +51,12 @@ func (d *dummySettings) Get(string) string {
 func (d *dummySettings) Set(string, string) {}
 
 type Job struct {
-	m       sync.Mutex
-	Name    string
-	queue   *Queue
-	File    string
-	Printer string
-	submit  bool
+	m         sync.Mutex
+	Name      string
+	queue     *Queue
+	File      string
+	Printer   string
+	submitted bool
 }
 
 type Queue struct {
@@ -158,12 +158,17 @@ func (q *Queue) resetLocked(submitJob bool) error {
 	// to truncate it because there could be an active job whose file is
 	// hardlinked to the spool file, and we need to break that connection
 	err := os.Remove(q.File)
-	if !os.IsNotExist(err) {
+	if err != nil && !os.IsNotExist(err) {
 		return err
 	}
 
-	if submitJob && q.job != nil && q.job.submit {
-		q.monitor.jobs <- *q.job
+	if submitJob && q.job != nil && q.job.submitted {
+		select {
+		case q.monitor.jobs <- q.job:
+			log.Debugf("Submitted job %s to work queue", q.job.Name)
+		default:
+			log.Errorf("Dropped job %s", q.job.Name)
+		}
 		q.job = nil
 	}
 
@@ -181,21 +186,21 @@ func (q *Queue) submitJob() {
 	defer q.m.Unlock()
 
 	if q.job != nil {
-		app.Go(q.job.Submit)
+		app.Go(q.job.submit)
 	}
 }
 
-func (j *Job) Submit() {
+func (j *Job) submit() {
 
 	j.m.Lock()
 	defer j.m.Unlock()
 
-	if j.submit {
+	if j.submitted {
 		return
 	}
 
 	err := os.Link(j.queue.File, j.File)
-	if !os.IsExist(err) {
+	if err != nil && !os.IsExist(err) {
 		panic(err)
 	}
 
@@ -221,17 +226,17 @@ func (j *Job) Submit() {
 			fmt.Println(fi, fi2)
 
 			if !fi2.ModTime().After(fi.ModTime()) {
-				j.submit = true
+				j.submitted = true
 			}
 
 		}
 
 	} else {
-		j.submit = true
+		j.submitted = true
 	}
 
-	if j.submit {
-		j.queue.reset(true)
+	if j.submitted {
+		j.queue.resetLocked(true)
 	}
 
 }
@@ -244,7 +249,7 @@ type Monitor struct {
 	state    state
 	fsEvents chan notify.EventInfo
 	queues   map[string]*Queue
-	jobs     chan Job
+	jobs     chan *Job
 	isValid  JobValidationFunc
 }
 
@@ -254,7 +259,7 @@ func NewMonitor(path string, isValid JobValidationFunc) *Monitor {
 		state:    valid,
 		fsEvents: make(chan notify.EventInfo, 10),
 		queues:   make(map[string]*Queue),
-		jobs:     make(chan Job, 1),
+		jobs:     make(chan *Job, 1),
 		isValid:  isValid,
 	}
 }
@@ -263,7 +268,7 @@ func (m *Monitor) Path() string {
 	return m.path
 }
 
-func (m *Monitor) Jobs() <-chan Job {
+func (m *Monitor) Jobs() <-chan *Job {
 	return m.jobs
 }
 
@@ -276,7 +281,7 @@ func (m *Monitor) AddLPTPort(port int, name string) (queue *Queue, err error) {
 		return
 	}
 
-	file := filepath.Join(m.path, fmt.Sprintf("lpt-%d.txt", port))
+	file := fmt.Sprintf("lpt-%d.txt", port)
 	if _, found := m.queues[file]; found {
 		err = fmt.Errorf("Cannot add %s, already monitoring", device)
 		return
@@ -284,12 +289,12 @@ func (m *Monitor) AddLPTPort(port int, name string) (queue *Queue, err error) {
 
 	m.queues[file] = &Queue{
 		Device:   device,
-		File:     file,
+		File:     filepath.Join(m.path, file),
 		Name:     name,
 		Settings: &dummySettings{},
 		state:    valid,
 		monitor:  m,
-		timeout:  300 * time.Millisecond,
+		timeout:  1000 * time.Millisecond,
 	}
 
 	queue = m.queues[file]
@@ -359,8 +364,9 @@ func (m *Monitor) Start(ctx context.Context) error {
 			}
 		case <-ticker.C:
 			for file, queue := range m.queues {
-				if time.Since(queue.lastActivity) > queue.timeout {
+				if queue.IsSpooling() && time.Since(queue.lastActivity) > queue.timeout {
 					log.Infof("Job complete for queue %s", file)
+					log.Infof("Now: %s lastActivity: %s", time.Now(), queue.lastActivity)
 					queue.submitJob()
 				}
 			}
