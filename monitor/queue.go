@@ -53,6 +53,7 @@ func (d *dummySettings) Set(string, string) {}
 
 type Job struct {
 	m         sync.Mutex
+	Time      time.Time
 	Name      string
 	queue     *Queue
 	File      string
@@ -138,10 +139,13 @@ func (q *Queue) startJob() (*Job, error) {
 		return nil, fmt.Errorf("Queue %s already has a job", q.Name)
 	}
 
+	t := time.Now()
+	name := t.Format("pj-060102-150405")
 	q.job = &Job{
-		Name:    "foo",
+		Time:    t,
+		Name:    name,
 		queue:   q,
-		File:    filepath.Join(filepath.Dir(q.File), "foo.txt"),
+		File:    filepath.Join(filepath.Dir(q.File), name+".txt"),
 		Printer: q.Settings.Get("printer"),
 	}
 	q.monitor.updateSpooling(1)
