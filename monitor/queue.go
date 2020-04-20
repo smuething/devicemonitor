@@ -244,6 +244,7 @@ func (j *Job) submit() {
 
 }
 
+type JobChannel <-chan *Job
 type JobValidationFunc func(*os.File) bool
 
 type Monitor struct {
@@ -274,7 +275,7 @@ func (m *Monitor) Path() string {
 	return m.path
 }
 
-func (m *Monitor) Jobs() <-chan *Job {
+func (m *Monitor) Jobs() JobChannel {
 	return m.jobs
 }
 
