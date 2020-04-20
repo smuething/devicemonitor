@@ -13,6 +13,7 @@ import (
 	"github.com/lxn/walk"
 	log "github.com/sirupsen/logrus"
 	"github.com/smuething/devicemonitor/app"
+	"github.com/smuething/devicemonitor/handler"
 	"github.com/smuething/devicemonitor/monitor"
 )
 
@@ -60,6 +61,18 @@ func RunUI() {
 	if err != nil {
 		panic(err)
 	}
+
+	_, err = monitor.AddLPTPort(2, "Blanko")
+	if err != nil {
+		panic(err)
+	}
+
+	app.Go(func() {
+		handler.Foo(monitor)
+		// for job := range monitor.Jobs() {
+		// 	log.Infof("Processing job %s", job.Name)
+		// }
+	})
 
 	app.Go(func() {
 		previous := 0
