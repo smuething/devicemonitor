@@ -120,6 +120,14 @@
   revision = "b8b99ed86a56beee563a0aa383ab7d34545eca60"
 
 [[projects]]
+  digest = "1:1a7059d684f8972987e4b6f0703083f207d63f63da0ea19610ef2e6bb73db059"
+  name = "github.com/imdario/mergo"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "66f88b4ae75f5edcc556623b96ff32c06360fbb7"
+  version = "v0.3.9"
+
+[[projects]]
   branch = "master"
   digest = "1:26ee455faa224e7031355a0b51ce60c489f0fb4aa2cc96b42a622c320f0c0049"
   name = "github.com/koding/multiconfig"
@@ -220,6 +228,14 @@
   revision = "d04f5f5372649757044bb1bf864427e6b92b9d68"
 
 [[projects]]
+  digest = "1:ff4cd55a3666b6ea3a876c9e133bfb54d6c812e725409a773f2c94a0b3a92f4f"
+  name = "github.com/spf13/cast"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "1ffadf551085444af981432dd0f6d1160c11ec64"
+  version = "v1.3.1"
+
+[[projects]]
   branch = "master"
   digest = "1:f8752318d4fd3ea7b23a68e24e7cf51e79e680974b002949e5570d2371b4fabf"
   name = "github.com/sqweek/dialog"
@@ -273,6 +289,14 @@
   revision = "53403b58ad1b561927d19068c655246f2db79d48"
   version = "v2.2.8"
 
+[[projects]]
+  branch = "v3"
+  digest = "1:55d59c3399c684c4e3edc6c404e5dc85b072363918bf2a2c6b0e6e4807ea73bf"
+  name = "gopkg.in/yaml.v3"
+  packages = ["."]
+  pruneopts = "UT"
+  revision = "9f266ea9e77c4c7aab4cf02650570e7c7b3031a5"
+
 [solve-meta]
   analyzer-name = "dep"
   analyzer-version = 1
@@ -280,6 +304,7 @@
     "github.com/TheTitanrain/w32",
     "github.com/alexbrainman/printer",
     "github.com/hnakamur/w32syscall",
+    "github.com/imdario/mergo",
     "github.com/koding/multiconfig",
     "github.com/lxn/walk",
     "github.com/lxn/walk/declarative",
@@ -288,9 +313,11 @@
     "github.com/sanity-io/litter",
     "github.com/sirupsen/logrus",
     "github.com/smuething/systray",
+    "github.com/spf13/cast",
     "github.com/sqweek/dialog",
     "github.com/x-cray/logrus-prefixed-formatter",
     "golang.org/x/sys/windows",
+    "gopkg.in/yaml.v3",
   ]
   solver-name = "gps-cdcl"
   solver-version = 1
