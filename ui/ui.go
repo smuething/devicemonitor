@@ -8,6 +8,7 @@ import (
 	"os/signal"
 	"runtime"
 	"runtime/debug"
+	"sort"
 	"syscall"
 
 	"github.com/lxn/walk"
@@ -55,20 +56,32 @@ func RunUI() {
 	tray, err := NewTray(mainWindow)
 	defer tray.Dispose()
 
-	monitor := monitor.NewMonitor(`w:\spool`, nil)
+	var m *monitor.Monitor
+	config := app.Config()
+	func() {
+		config.Lock()
+		defer config.Unlock()
+		m = monitor.NewMonitor(config.Paths.SpoolDir, nil)
 
-	_, err = monitor.AddLPTPort(1, "Formulare")
-	if err != nil {
-		panic(err)
-	}
+		deviceConfigs := make([]app.DeviceConfig, 0)
+		for _, dc := range config.Devices {
+			deviceConfigs = append(deviceConfigs, dc)
+		}
+		sort.Slice(deviceConfigs, func(i, j int) bool {
+			return deviceConfigs[i].Pos < deviceConfigs[j].Pos
+		})
 
-	_, err = monitor.AddLPTPort(2, "Blanko")
-	if err != nil {
-		panic(err)
-	}
+		for _, dc := range deviceConfigs {
+			_, err = m.AddDevice(dc.Device, dc.File, dc.Name, dc.Timeout)
+			if err != nil {
+				log.Fatalf("Could not add device: %s", dc.Device)
+			}
+		}
+
+	}()
 
 	app.Go(func() {
-		handler.Foo(monitor)
+		handler.Foo(m)
 		// for job := range monitor.Jobs() {
 		// 	log.Infof("Processing job %s", job.Name)
 		// }
@@ -76,7 +89,7 @@ func RunUI() {
 
 	app.Go(func() {
 		previous := 0
-		for active := range monitor.Spooling() {
+		for active := range m.Spooling() {
 			if active != previous {
 				id := ""
 				if active > 0 && previous == 0 {
@@ -101,15 +114,15 @@ func RunUI() {
 	})
 
 	app.GoWithError(func() error {
-		return monitor.Start(app.Context())
+		return m.Start(app.Context())
 	})
 
-	c := make(chan os.Signal)
-	signal.Notify(c, os.Interrupt, syscall.SIGTERM)
+	ch := make(chan os.Signal)
+	signal.Notify(ch, os.Interrupt, syscall.SIGTERM)
 	app.Go(func() {
 		ctx := app.Context()
 		select {
-		case <-c:
+		case <-ch:
 			log.Infof("Received SIGTERM, shutting down")
 			mainWindow.Synchronize(func() {
 				walk.App().Exit(0)
@@ -118,8 +131,14 @@ func RunUI() {
 		}
 	})
 
-	go func() {
-		log.Println(http.ListenAndServe(":6060", nil))
+	func() {
+		config.Lock()
+		defer config.Unlock()
+		if config.PProf.Enable {
+			go func() {
+				log.Println(http.ListenAndServe(config.PProf.Address, nil))
+			}()
+		}
 	}()
 
 	log.AddHook(displayErrorHook{})
