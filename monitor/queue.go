@@ -295,6 +295,31 @@ func (m *Monitor) updateSpooling(delta int) {
 	}
 }
 
+func (m *Monitor) AddDevice(device string, file string, name string, timeout time.Duration) (queue *Queue, err error) {
+
+	if file != filepath.Base(file) {
+		return nil, fmt.Errorf("filename must not contain path components: %s", file)
+	}
+
+	if _, found := m.queues[file]; found {
+		err = fmt.Errorf("Cannot add %s, already monitoring", device)
+		return
+	}
+
+	m.queues[file] = &Queue{
+		Device:   device,
+		File:     filepath.Join(m.path, file),
+		Name:     name,
+		Settings: &dummySettings{},
+		state:    valid,
+		monitor:  m,
+		timeout:  timeout,
+	}
+
+	queue = m.queues[file]
+	return
+}
+
 func (m *Monitor) AddLPTPort(port int, name string) (queue *Queue, err error) {
 
 	device := fmt.Sprintf("LPT%d", port)
