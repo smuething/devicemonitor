@@ -2,18 +2,72 @@ package app
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
+
+	"github.com/smuething/devicemonitor/config"
 )
+
+type Configuration struct {
+	config.ConfigBase
+
+	LogLevel string `yaml:"log_level,omitempty"`
+
+	PProf struct {
+		Enable  bool   `yaml:"enable,omitempty"`
+		Address string `yaml:"address,omitempty"`
+	} `yaml:"pprof,omitempty"`
+
+	Paths struct {
+		SpoolDir string `yaml:"spool_dir,omitempty"`
+	} `yaml:"paths,omitempty"`
+
+	Devices map[string]DeviceConfig `yaml:"devices,omitempty"`
+}
+
+type DeviceConfig struct {
+	Pos     int           `yaml:"pos,omitempty"`
+	Device  string        `yaml:"device,omitempty"`
+	Name    string        `yaml:"name,omitempty"`
+	File    string        `yaml:"file,omitempty"`
+	Timeout time.Duration `yaml:"timeout,omitempty"`
+}
 
 var wg *sync.WaitGroup = &sync.WaitGroup{}
 var backgroundCtx context.Context
 var ctx context.Context
 var cancel context.CancelFunc
+var cr *config.ConfigRepository
 
 func init() {
 	backgroundCtx = context.Background()
 	ctx, cancel = context.WithCancel(backgroundCtx)
+}
+
+func LoadConfig(userConfigFile string, configFiles ...string) error {
+	if cr != nil {
+		return fmt.Errorf("Configuraiton already set up")
+	}
+	cr = config.New(
+		func() config.LockingConfig { return &Configuration{} },
+		userConfigFile,
+		configFiles...,
+	)
+	cr.SetCreateMissing(true)
+	cr.SetIgnoreMissing(true)
+	return cr.Load()
+}
+
+func ReloadConfig() error {
+	return cr.Load()
+}
+
+func Config() *Configuration {
+	if cr == nil {
+		panic("Cannot access config before calling LoadConfig()")
+	}
+	return cr.Config().(*Configuration)
 }
 
 func Go(f func()) {
