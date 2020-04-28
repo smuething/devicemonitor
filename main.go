@@ -11,6 +11,7 @@ import (
 )
 
 func main() {
+	app.LoadConfig(os.Args[1], os.Args[2:]...)
 	ui.RunUI()
 	shutdownCtx, cancelShutdown := app.ContextWithTimeout(time.Second, false)
 	defer cancelShutdown()
