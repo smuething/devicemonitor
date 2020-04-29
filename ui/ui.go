@@ -83,11 +83,21 @@ func RunUI() {
 				log.Fatalf("Could not create menu for device: %s", dc.Device)
 			}
 			app.Go(func() {
-				log.Infof("devices: %+v", tray.devices)
 				device := tray.devices[dc.Device]
-				log.Infof("device: %+v", device)
 				for target := range device.Selected() {
 					app.SetConfigByPath(target, "Devices", dc.Device, "target")
+				}
+			})
+			app.Go(func() {
+				device := tray.devices[dc.Device]
+				for value := range device.ExtendTimeout() {
+					app.SetConfigByPath(value, "devices", dc.Device, "extend_timeout")
+				}
+			})
+			app.Go(func() {
+				device := tray.devices[dc.Device]
+				for value := range device.PrintViaPDF() {
+					app.SetConfigByPath(value, "devices", dc.Device, "print_via_pdf")
 				}
 			})
 		}
