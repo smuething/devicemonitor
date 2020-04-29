@@ -3,8 +3,11 @@ package ui
 import (
 	"fmt"
 
+	"github.com/smuething/devicemonitor/app"
+
 	"github.com/alexbrainman/printer"
 	"github.com/lxn/walk"
+	log "github.com/sirupsen/logrus"
 )
 
 type deviceTarget struct {
@@ -15,17 +18,23 @@ type deviceTarget struct {
 
 type DeviceMenu struct {
 	*walk.Menu
-	action   *walk.Action
-	Selected chan string
-	active   *walk.Action
-	entries  map[string]*walk.Action
+	action              *walk.Action
+	selected            chan string
+	extendTimeout       chan bool
+	printViaPDF         chan bool
+	active              *walk.Action
+	entries             map[string]*walk.Action
+	extendTimeoutAction *walk.Action
+	printViaPDFAction   *walk.Action
 }
 
 func NewDeviceMenu() (*DeviceMenu, error) {
 
 	menu := &DeviceMenu{
-		Selected: make(chan string),
-		entries:  make(map[string]*walk.Action),
+		selected:      make(chan string),
+		extendTimeout: make(chan bool),
+		printViaPDF:   make(chan bool),
+		entries:       make(map[string]*walk.Action),
 	}
 
 	var err error
@@ -35,6 +44,18 @@ func NewDeviceMenu() (*DeviceMenu, error) {
 	}
 
 	return menu, nil
+}
+
+func (dm *DeviceMenu) Selected() <-chan string {
+	return dm.selected
+}
+
+func (dm *DeviceMenu) ExtendTimeout() <-chan bool {
+	return dm.extendTimeout
+}
+
+func (dm *DeviceMenu) PrintViaPDF() <-chan bool {
+	return dm.printViaPDF
 }
 
 type Tray struct {
@@ -69,7 +90,10 @@ func (tray *Tray) setup() error {
 	tray.SetIcon(icon)
 	tray.SetVisible(true)
 
-	tray.addDeviceMenu()
+	return nil
+}
+
+func (tray *Tray) finalize() error {
 
 	var action *walk.Action
 
@@ -98,7 +122,16 @@ func (tray *Tray) setup() error {
 	return nil
 }
 
-func (tray *Tray) addDeviceMenu() (err error) {
+func containsString(stack []string, needle string) bool {
+	for _, hay := range stack {
+		if hay == needle {
+			return true
+		}
+	}
+	return false
+}
+
+func (tray *Tray) addDeviceMenu(config *app.DeviceConfig) (err error) {
 
 	menu, err := NewDeviceMenu()
 	if err != nil {
@@ -110,16 +143,29 @@ func (tray *Tray) addDeviceMenu() (err error) {
 		}
 	}()
 
+	target := config.Target
+	if target == "" {
+		target, _ = printer.Default()
+	}
+
 	options := []deviceTarget{
-		{"PDF", false, false},
-		{"Drucker wählen", false, false},
+		{name: "PDF", active: "PDF" == target},
+		{name: "Drucker wählen", active: "Drucker wählen" == target},
 		{separator: true},
 	}
 
+	blacklist := []string{
+		"PDF",
+		"Drucker wählen",
+	}
+
 	printers, _ := printer.ReadNames()
-	defaultPrinter, _ := printer.Default()
 	for _, printer := range printers {
-		options = append(options, deviceTarget{name: printer, active: printer == defaultPrinter})
+		if !containsString(blacklist, printer) {
+			options = append(options, deviceTarget{name: printer, active: printer == target})
+		} else {
+			log.Infof("Skipped blacklisted printer %s", printer)
+		}
 	}
 
 	for _, option := range options {
@@ -149,7 +195,7 @@ func (tray *Tray) addDeviceMenu() (err error) {
 			action.SetChecked(true)
 			menu.active = action
 			select {
-			case menu.Selected <- target:
+			case menu.selected <- target:
 			default:
 				// Ignore if no receiver
 			}
@@ -162,17 +208,53 @@ func (tray *Tray) addDeviceMenu() (err error) {
 		return fmt.Errorf("Must have an active device target")
 	}
 
+	action := walk.NewSeparatorAction()
+	menu.Actions().Add(action)
+
+	action = walk.NewAction()
+	action.SetText("langsame Druckjobs")
+	action.SetCheckable(true)
+	action.SetChecked(config.ExtendTimeout)
+	action.SetChecked(true)
+	menu.extendTimeoutAction = action
+	action.Triggered().Attach(func() {
+		action := menu.extendTimeoutAction
+		select {
+		case menu.extendTimeout <- action.Checked():
+		default:
+			// ignore if no receiver
+		}
+	})
+	menu.Actions().Add(action)
+
+	action = walk.NewAction()
+	action.SetText("Drucken als PDF")
+	action.SetCheckable(true)
+	action.SetChecked(config.PrintViaPDF)
+	menu.printViaPDFAction = action
+	action.Triggered().Attach(func() {
+		action := menu.printViaPDFAction
+		select {
+		case menu.printViaPDF <- action.Checked():
+		default:
+			// ignore if no receiver
+		}
+	})
+	menu.Actions().Add(action)
+
 	tray.mw.Disposing().Attach(func() {
-		// avoid leaking the channel and stalling listening goroutines
-		close(menu.Selected)
+		// avoid leaking channels and stalling listening goroutines
+		close(menu.selected)
+		close(menu.extendTimeout)
+		close(menu.printViaPDF)
 	})
 
-	menu.action, err = tray.ContextMenu().Actions().InsertMenu(0, menu.Menu)
+	menu.action, err = tray.ContextMenu().Actions().InsertMenu(len(tray.devices), menu.Menu)
 	if err != nil {
 		return err
 	}
-	menu.action.SetText("LPT1")
-	tray.devices["LPT1"] = menu
+	menu.action.SetText(fmt.Sprintf("%s (%s)", config.Device, config.Name))
+	tray.devices[config.Device] = menu
 
 	return err
 

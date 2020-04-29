@@ -71,14 +71,30 @@ func RunUI() {
 			return deviceConfigs[i].Pos < deviceConfigs[j].Pos
 		})
 
-		for _, dc := range deviceConfigs {
+		for i := range deviceConfigs {
+			// make sure we get separate variables for the closure down below
+			dc := deviceConfigs[i]
 			_, err = m.AddDevice(dc.Device, dc.File, dc.Name, dc.Timeout)
 			if err != nil {
 				log.Fatalf("Could not add device: %s", dc.Device)
 			}
+			err = tray.addDeviceMenu(&dc)
+			if err != nil {
+				log.Fatalf("Could not create menu for device: %s", dc.Device)
+			}
+			app.Go(func() {
+				log.Infof("devices: %+v", tray.devices)
+				device := tray.devices[dc.Device]
+				log.Infof("device: %+v", device)
+				for target := range device.Selected() {
+					app.SetConfigByPath(target, "Devices", dc.Device, "target")
+				}
+			})
 		}
 
 	}()
+
+	tray.finalize()
 
 	app.Go(func() {
 		handler.Foo(m)
