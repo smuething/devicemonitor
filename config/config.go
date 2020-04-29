@@ -176,7 +176,6 @@ func (cr *ConfigRepository) rebuildConfig() error {
 	if err != nil {
 		return err
 	}
-	fmt.Println(string(data))
 	userConfig := cr.makeConfig()
 	if err = yaml.Unmarshal(data, userConfig); err != nil {
 		return err
