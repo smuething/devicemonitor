@@ -3,6 +3,7 @@ package app
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -27,11 +28,14 @@ type Configuration struct {
 }
 
 type DeviceConfig struct {
-	Pos     int           `yaml:"pos,omitempty"`
-	Device  string        `yaml:"device,omitempty"`
-	Name    string        `yaml:"name,omitempty"`
-	File    string        `yaml:"file,omitempty"`
-	Timeout time.Duration `yaml:"timeout,omitempty"`
+	Pos           int           `yaml:"pos,omitempty"`
+	Device        string        `yaml:"device,omitempty"`
+	Name          string        `yaml:"name,omitempty"`
+	File          string        `yaml:"file,omitempty"`
+	Timeout       time.Duration `yaml:"timeout,omitempty"`
+	Target        string        `yaml:"target,omitempty"`
+	ExtendTimeout bool          `yaml:"extend_timeout,omitempty"`
+	PrintViaPDF   bool          `yaml:"print_via_pdf,omitempty"`
 }
 
 var wg *sync.WaitGroup = &sync.WaitGroup{}
