@@ -215,7 +215,6 @@ func (tray *Tray) addDeviceMenu(config *app.DeviceConfig) (err error) {
 	action.SetText("langsame Druckjobs")
 	action.SetCheckable(true)
 	action.SetChecked(config.ExtendTimeout)
-	action.SetChecked(true)
 	menu.extendTimeoutAction = action
 	action.Triggered().Attach(func() {
 		action := menu.extendTimeoutAction
