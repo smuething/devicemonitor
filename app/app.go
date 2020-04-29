@@ -25,6 +25,8 @@ type Configuration struct {
 	} `yaml:"paths,omitempty"`
 
 	Devices map[string]DeviceConfig `yaml:"devices,omitempty"`
+
+	Printers map[string]PrinterConfig `yaml:"printers,omitempty"`
 }
 
 type DeviceConfig struct {
@@ -36,6 +38,20 @@ type DeviceConfig struct {
 	Target        string        `yaml:"target,omitempty"`
 	ExtendTimeout bool          `yaml:"extend_timeout,omitempty"`
 	PrintViaPDF   bool          `yaml:"print_via_pdf,omitempty"`
+	JobConfig     string        `yaml:"job_config,omitempty"`
+}
+
+type PrinterConfig struct {
+	Name string               `yaml:"name,omitempty"`
+	Jobs map[string]JobConfig `yaml:"jobs,omitempty"`
+}
+
+type JobConfig struct {
+	Pos              int    `yaml:"pos,omitempty"`
+	Name             string `yaml:"name,omitempty"`
+	Description      string `yaml:"description,omitempty"`
+	PaperTrayPJLCode string `yaml:"paper_tray_pjl_code,omitempty"`
+	Color            bool   `yaml:"color,omitempty"`
 }
 
 var wg *sync.WaitGroup = &sync.WaitGroup{}
