@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"runtime/pprof"
 	"time"
@@ -11,7 +12,10 @@ import (
 )
 
 func main() {
-	app.LoadConfig(os.Args[1], os.Args[2:]...)
+	if err := app.LoadConfig(os.Args[1], os.Args[2:]...); err != nil {
+		ui.ShowError(nil, "Fehler beim Laden der Konfiguration", fmt.Sprintf("%s", err))
+		log.Fatal(err)
+	}
 	ui.RunUI()
 	shutdownCtx, cancelShutdown := app.ContextWithTimeout(time.Second, false)
 	defer cancelShutdown()
