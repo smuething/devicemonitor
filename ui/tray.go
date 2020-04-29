@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"sort"
 
 	"github.com/smuething/devicemonitor/app"
 
@@ -9,6 +10,8 @@ import (
 	"github.com/lxn/walk"
 	log "github.com/sirupsen/logrus"
 )
+
+const no_job_types_defined = "Keine Jobtypen definiert"
 
 type deviceTarget struct {
 	name      string
@@ -18,14 +21,18 @@ type deviceTarget struct {
 
 type DeviceMenu struct {
 	*walk.Menu
-	action              *walk.Action
-	selected            chan string
-	extendTimeout       chan bool
-	printViaPDF         chan bool
-	active              *walk.Action
-	entries             map[string]*walk.Action
-	extendTimeoutAction *walk.Action
-	printViaPDFAction   *walk.Action
+	action                    *walk.Action
+	selected                  chan string
+	extendTimeout             chan bool
+	printViaPDF               chan bool
+	active                    *walk.Action
+	entries                   map[string]*walk.Action
+	extendTimeoutAction       *walk.Action
+	printViaPDFAction         *walk.Action
+	currentJobConfigAction    *walk.Action
+	jobConfigMenuAction       *walk.Action
+	jobConfigMenu             *walk.Menu
+	activeJobConfigMenuAction *walk.Action
 }
 
 func NewDeviceMenu() (*DeviceMenu, error) {
@@ -56,6 +63,47 @@ func (dm *DeviceMenu) ExtendTimeout() <-chan bool {
 
 func (dm *DeviceMenu) PrintViaPDF() <-chan bool {
 	return dm.printViaPDF
+}
+
+func (dm *DeviceMenu) ResetJobTypes(config *app.PrinterConfig, current string) {
+	dm.jobConfigMenu.Actions().Clear()
+	if config == nil || len(config.Jobs) == 0 {
+		dm.currentJobConfigAction.SetText(no_job_types_defined)
+		dm.currentJobConfigAction.SetEnabled(false)
+		dm.jobConfigMenuAction.SetEnabled(false)
+	} else {
+		jobs := make([]app.JobConfig, 0)
+		for _, job := range config.Jobs {
+			jobs = append(jobs, job)
+		}
+		sort.Slice(jobs, func(i, j int) bool {
+			return jobs[i].Pos < jobs[j].Pos
+		})
+		if current == "" {
+			current = jobs[0].Name
+		}
+		for i := range jobs {
+			job := jobs[i]
+			action := walk.NewAction()
+			action.SetText(job.Description)
+			action.SetCheckable(true)
+			if job.Name == current {
+				action.SetChecked(true)
+				dm.currentJobConfigAction.SetText(job.Description)
+				dm.activeJobConfigMenuAction = action
+			}
+			action.Triggered().Attach(func() {
+				if dm.activeJobConfigMenuAction != nil {
+					dm.activeJobConfigMenuAction.SetChecked(false)
+				}
+				dm.currentJobConfigAction.SetText(job.Description)
+				dm.activeJobConfigMenuAction = action
+			})
+			dm.jobConfigMenu.Actions().Add(action)
+		}
+		dm.currentJobConfigAction.SetEnabled(true)
+		dm.jobConfigMenuAction.SetEnabled(true)
+	}
 }
 
 type Tray struct {
@@ -209,6 +257,24 @@ func (tray *Tray) addDeviceMenu(config *app.DeviceConfig) (err error) {
 	}
 
 	action := walk.NewSeparatorAction()
+	menu.Actions().Add(action)
+
+	action = walk.NewAction()
+	action.SetEnabled(false)
+	action.SetText(no_job_types_defined)
+	menu.currentJobConfigAction = action
+	menu.Actions().Add(action)
+
+	menu.jobConfigMenu, err = walk.NewMenu()
+	if err != nil {
+		return err
+	}
+
+	menu.jobConfigMenuAction, err = menu.Actions().AddMenu(menu.jobConfigMenu)
+	menu.jobConfigMenuAction.SetText("Wählen")
+	menu.jobConfigMenuAction.SetEnabled(false)
+
+	action = walk.NewSeparatorAction()
 	menu.Actions().Add(action)
 
 	action = walk.NewAction()

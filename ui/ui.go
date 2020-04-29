@@ -86,6 +86,11 @@ func RunUI() {
 				device := tray.devices[dc.Device]
 				for target := range device.Selected() {
 					app.SetConfigByPath(target, "Devices", dc.Device, "target")
+					var printerConfig *app.PrinterConfig
+					if pc, ok := config.Printers[target]; ok {
+						printerConfig = &pc
+					}
+					device.ResetJobTypes(printerConfig, "")
 				}
 			})
 			app.Go(func() {
