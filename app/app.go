@@ -70,6 +70,10 @@ func Config() *Configuration {
 	return cr.Config().(*Configuration)
 }
 
+func SetConfigByPath(value interface{}, path ...string) error {
+	return cr.Set(strings.ToLower(strings.Join(path, ".")), value)
+}
+
 func Go(f func()) {
 	wg.Add(1)
 	go func() {
