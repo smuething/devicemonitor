@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io/ioutil"
 	"os"
+	"reflect"
 	"strings"
 	"sync"
 
@@ -109,7 +110,8 @@ func New(makeConfig MakeConfigFunc, userConfigFile string, configFiles ...string
 func (cr *ConfigRepository) toMap(s interface{}) map[string]interface{} {
 	struct_ := structs.New(s)
 	struct_.TagName = "yaml"
-	return struct_.Map()
+	m := struct_.Map()
+	return m
 }
 
 func (cr *ConfigRepository) Load() error {
@@ -186,6 +188,11 @@ func (cr *ConfigRepository) rebuildConfig() error {
 	return nil
 }
 
+func normalizeKey(key string) string {
+	return key
+	// return strings.Replace(key, "_", "", -1)
+}
+
 func getNestedMapValue(m map[string]interface{}, key string) interface{} {
 	return getNestedMapValueSlice(m, strings.Split(key, "."))
 }
@@ -195,9 +202,9 @@ func getNestedMapValueSlice(m map[string]interface{}, key []string) interface{} 
 	case 0:
 		return m
 	case 1:
-		return m[key[0]]
+		return m[normalizeKey(key[0])]
 	default:
-		iv := m[key[0]]
+		iv := m[normalizeKey(key[0])]
 		switch v := iv.(type) {
 		case map[interface{}]interface{}:
 			return getNestedMapValueSlice(cast.ToStringMap(v), key[1:])
@@ -264,6 +271,15 @@ func (cr *ConfigRepository) Set(key string, value interface{}) error {
 	cr.m.Lock()
 	defer cr.m.Unlock()
 	fixedValue := getNestedMapValue(cr.fixedConfigMap, key)
+	if fixedValue == nil {
+		typ := reflect.TypeOf(value)
+		switch typ {
+		case reflect.TypeOf(true):
+			fixedValue = false
+		case reflect.TypeOf(""):
+			fixedValue = ""
+		}
+	}
 	if value == nil || value == fixedValue {
 		if err := pruneNestedMapKey(cr.userConfig, key); err != nil {
 			return err
