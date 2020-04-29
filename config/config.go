@@ -269,7 +269,6 @@ func (cr *ConfigRepository) Set(key string, value interface{}) error {
 			return err
 		}
 	} else {
-		fmt.Println("Setting")
 		if err := setNestedMapKey(cr.userConfig, key, value); err != nil {
 			return err
 		}
@@ -286,6 +285,12 @@ func (cr *ConfigRepository) Set(key string, value interface{}) error {
 	enc := yaml.NewEncoder(f)
 	defer enc.Close()
 	if err = enc.Encode(cr.userConfig); err != nil {
+		return err
+	}
+	if err = f.Sync(); err != nil {
+		return err
+	}
+	if err = f.Close(); err != nil {
 		return err
 	}
 	return os.Rename(cr.userConfigFile+".swp", cr.userConfigFile)
