@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/smuething/devicemonitor/config"
+	"gopkg.in/yaml.v2"
 )
 
 type Configuration struct {
@@ -29,21 +30,30 @@ type Configuration struct {
 	Printers map[string]PrinterConfig `yaml:"printers,omitempty"`
 }
 
+func (config *Configuration) Printer(name string) *PrinterConfig {
+	if pc, ok := config.Printers[name]; ok {
+		return &pc
+	} else {
+		return nil
+	}
+}
+
 type DeviceConfig struct {
-	Pos           int           `yaml:"pos,omitempty"`
-	Device        string        `yaml:"device,omitempty"`
-	Name          string        `yaml:"name,omitempty"`
-	File          string        `yaml:"file,omitempty"`
-	Timeout       time.Duration `yaml:"timeout,omitempty"`
-	Target        string        `yaml:"target,omitempty"`
-	ExtendTimeout bool          `yaml:"extend_timeout,omitempty"`
-	PrintViaPDF   bool          `yaml:"print_via_pdf,omitempty"`
-	JobConfig     string        `yaml:"job_config,omitempty"`
+	Pos           int               `yaml:"pos,omitempty"`
+	Device        string            `yaml:"device,omitempty"`
+	Name          string            `yaml:"name,omitempty"`
+	File          string            `yaml:"file,omitempty"`
+	Timeout       time.Duration     `yaml:"timeout,omitempty"`
+	Target        string            `yaml:"target,omitempty"`
+	ExtendTimeout bool              `yaml:"extend_timeout,omitempty"`
+	PrintViaPDF   bool              `yaml:"print_via_pdf,omitempty"`
+	JobConfigs    map[string]string `yaml:"job_configs,omitempty"`
 }
 
 type PrinterConfig struct {
-	Name string               `yaml:"name,omitempty"`
-	Jobs map[string]JobConfig `yaml:"jobs,omitempty"`
+	Name       string               `yaml:"name,omitempty"`
+	DefaultJob string               `yaml:"default_job,omitempty"`
+	Jobs       map[string]JobConfig `yaml:"jobs,omitempty"`
 }
 
 type JobConfig struct {
@@ -88,6 +98,11 @@ func Config() *Configuration {
 		panic("Cannot access config before calling LoadConfig()")
 	}
 	return cr.Config().(*Configuration)
+}
+
+func DumpConfig() {
+	out, _ := yaml.Marshal(cr.Config())
+	fmt.Println(string(out))
 }
 
 func SetConfigByPath(value interface{}, path ...string) error {
