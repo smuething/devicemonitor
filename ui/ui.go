@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"sort"
+	"strings"
 	"syscall"
 
 	"github.com/lxn/walk"
@@ -86,11 +87,12 @@ func RunUI() {
 				device := tray.devices[dc.Device]
 				for target := range device.Selected() {
 					app.SetConfigByPath(target, "Devices", dc.Device, "target")
-					var printerConfig *app.PrinterConfig
-					if pc, ok := config.Printers[target]; ok {
-						printerConfig = &pc
-					}
-					device.ResetJobTypes(printerConfig, "")
+					func() {
+						config := app.Config()
+						config.Lock()
+						defer config.Unlock()
+						device.ResetJobTypes(config.Printer(target), config.Devices[strings.ToLower(dc.Device)].JobConfigs[strings.ToLower(target)])
+					}()
 				}
 			})
 			app.Go(func() {
@@ -105,6 +107,13 @@ func RunUI() {
 					app.SetConfigByPath(value, "devices", dc.Device, "print_via_pdf")
 				}
 			})
+			app.Go(func() {
+				device := tray.devices[dc.Device]
+				for value := range device.JobConfig() {
+					app.SetConfigByPath(value.JobConfig, "devices", dc.Device, "job_configs", strings.ToLower(value.Printer))
+				}
+			})
+
 		}
 
 	}()

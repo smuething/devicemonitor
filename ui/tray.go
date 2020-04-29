@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/smuething/devicemonitor/app"
 
@@ -19,12 +20,18 @@ type deviceTarget struct {
 	separator bool
 }
 
+type JobConfigMsg struct {
+	Printer   string
+	JobConfig string
+}
+
 type DeviceMenu struct {
 	*walk.Menu
 	action                    *walk.Action
 	selected                  chan string
 	extendTimeout             chan bool
 	printViaPDF               chan bool
+	jobConfig                 chan JobConfigMsg
 	active                    *walk.Action
 	entries                   map[string]*walk.Action
 	extendTimeoutAction       *walk.Action
@@ -40,6 +47,7 @@ func NewDeviceMenu() (*DeviceMenu, error) {
 		selected:      make(chan string),
 		extendTimeout: make(chan bool),
 		printViaPDF:   make(chan bool),
+		jobConfig:     make(chan JobConfigMsg),
 		entries:       make(map[string]*walk.Action),
 	}
 
@@ -64,6 +72,10 @@ func (dm *DeviceMenu) PrintViaPDF() <-chan bool {
 	return dm.printViaPDF
 }
 
+func (dm *DeviceMenu) JobConfig() <-chan JobConfigMsg {
+	return dm.jobConfig
+}
+
 func (dm *DeviceMenu) ResetJobTypes(config *app.PrinterConfig, current string) {
 	dm.jobConfigMenu.Actions().Clear()
 	if config == nil || len(config.Jobs) == 0 {
@@ -78,7 +90,11 @@ func (dm *DeviceMenu) ResetJobTypes(config *app.PrinterConfig, current string) {
 			return jobs[i].Pos < jobs[j].Pos
 		})
 		if current == "" {
-			current = jobs[0].Name
+			if config.DefaultJob == "" {
+				current = jobs[0].Name
+			} else {
+				current = config.DefaultJob
+			}
 		}
 		for i := range jobs {
 			job := jobs[i]
@@ -92,10 +108,18 @@ func (dm *DeviceMenu) ResetJobTypes(config *app.PrinterConfig, current string) {
 			}
 			action.Triggered().Attach(func() {
 				if dm.activeJobConfigMenuAction != nil {
+					if action == dm.activeJobConfigMenuAction {
+						return
+					}
 					dm.activeJobConfigMenuAction.SetChecked(false)
 				}
 				dm.jobConfigMenuAction.SetText(job.Description)
 				dm.activeJobConfigMenuAction = action
+				select {
+				case dm.jobConfig <- JobConfigMsg{Printer: config.Name, JobConfig: job.Name}:
+				default:
+					// ignore if no receiver
+				}
 			})
 			dm.jobConfigMenu.Actions().Add(action)
 		}
@@ -234,10 +258,12 @@ func (tray *Tray) addDeviceMenu(config *app.DeviceConfig) (err error) {
 		}
 		action.SetChecked(option.active)
 		action.Triggered().Attach(func() {
-			if menu.active != nil && menu.active != action {
+			if menu.active != nil {
+				if menu.active == action {
+					return
+				}
 				menu.active.SetChecked(false)
 			}
-			action.SetChecked(true)
 			menu.active = action
 			select {
 			case menu.selected <- target:
@@ -262,8 +288,10 @@ func (tray *Tray) addDeviceMenu(config *app.DeviceConfig) (err error) {
 	}
 
 	menu.jobConfigMenuAction, err = menu.Actions().AddMenu(menu.jobConfigMenu)
-	menu.jobConfigMenuAction.SetText("Wählen")
+	menu.jobConfigMenuAction.SetText(no_job_types_defined)
 	menu.jobConfigMenuAction.SetEnabled(false)
+
+	menu.ResetJobTypes(app.Config().Printer(config.Target), config.JobConfigs[strings.ToLower(config.Target)])
 
 	action = walk.NewSeparatorAction()
 	menu.Actions().Add(action)
@@ -303,6 +331,7 @@ func (tray *Tray) addDeviceMenu(config *app.DeviceConfig) (err error) {
 		close(menu.selected)
 		close(menu.extendTimeout)
 		close(menu.printViaPDF)
+		close(menu.jobConfig)
 	})
 
 	menu.action, err = tray.ContextMenu().Actions().InsertMenu(len(tray.devices), menu.Menu)
