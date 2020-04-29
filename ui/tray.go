@@ -29,7 +29,6 @@ type DeviceMenu struct {
 	entries                   map[string]*walk.Action
 	extendTimeoutAction       *walk.Action
 	printViaPDFAction         *walk.Action
-	currentJobConfigAction    *walk.Action
 	jobConfigMenuAction       *walk.Action
 	jobConfigMenu             *walk.Menu
 	activeJobConfigMenuAction *walk.Action
@@ -68,8 +67,7 @@ func (dm *DeviceMenu) PrintViaPDF() <-chan bool {
 func (dm *DeviceMenu) ResetJobTypes(config *app.PrinterConfig, current string) {
 	dm.jobConfigMenu.Actions().Clear()
 	if config == nil || len(config.Jobs) == 0 {
-		dm.currentJobConfigAction.SetText(no_job_types_defined)
-		dm.currentJobConfigAction.SetEnabled(false)
+		dm.jobConfigMenuAction.SetText(no_job_types_defined)
 		dm.jobConfigMenuAction.SetEnabled(false)
 	} else {
 		jobs := make([]app.JobConfig, 0)
@@ -89,19 +87,18 @@ func (dm *DeviceMenu) ResetJobTypes(config *app.PrinterConfig, current string) {
 			action.SetCheckable(true)
 			if job.Name == current {
 				action.SetChecked(true)
-				dm.currentJobConfigAction.SetText(job.Description)
+				dm.jobConfigMenuAction.SetText(job.Description)
 				dm.activeJobConfigMenuAction = action
 			}
 			action.Triggered().Attach(func() {
 				if dm.activeJobConfigMenuAction != nil {
 					dm.activeJobConfigMenuAction.SetChecked(false)
 				}
-				dm.currentJobConfigAction.SetText(job.Description)
+				dm.jobConfigMenuAction.SetText(job.Description)
 				dm.activeJobConfigMenuAction = action
 			})
 			dm.jobConfigMenu.Actions().Add(action)
 		}
-		dm.currentJobConfigAction.SetEnabled(true)
 		dm.jobConfigMenuAction.SetEnabled(true)
 	}
 }
@@ -257,12 +254,6 @@ func (tray *Tray) addDeviceMenu(config *app.DeviceConfig) (err error) {
 	}
 
 	action := walk.NewSeparatorAction()
-	menu.Actions().Add(action)
-
-	action = walk.NewAction()
-	action.SetEnabled(false)
-	action.SetText(no_job_types_defined)
-	menu.currentJobConfigAction = action
 	menu.Actions().Add(action)
 
 	menu.jobConfigMenu, err = walk.NewMenu()
