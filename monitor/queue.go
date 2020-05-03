@@ -399,7 +399,7 @@ func (m *Monitor) Start(ctx context.Context) error {
 		case ei := <-m.fsEvents:
 			file := filepath.Base(ei.Path())
 			if queue, found := m.queues[file]; found {
-				log.Infof("Event %s for queue %s", ei, queue.Name)
+				log.Debugf("Event %s for queue %s", ei, queue.Name)
 				if ei.Event() == notify.Write {
 					if !queue.IsSpooling() {
 						if fi, err := os.Stat(queue.File); err != nil {
