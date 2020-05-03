@@ -192,44 +192,42 @@ func (q *Queue) submitJob() {
 	defer q.m.Unlock()
 
 	if q.job != nil {
-		app.Go(q.job.submit)
+		app.GoWithError(q.job.submit)
 	}
 }
 
-func (j *Job) submit() {
+func (j *Job) submit() error {
 
 	j.m.Lock()
 	defer j.m.Unlock()
 
 	if j.submitted {
-		return
+		return nil
 	}
 
 	err := os.Link(j.queue.File, j.File)
 	if err != nil && !os.IsExist(err) {
-		panic(err)
+		return err
 	}
 
 	if j.queue.monitor.isValid != nil {
 
 		f, err := os.Open(j.File)
 		if err != nil {
-			panic(err)
+			return err
 		}
 		defer f.Close()
 
 		fi, err := f.Stat()
 		if err != nil {
-			panic(err)
+			return err
 		}
 
 		if j.queue.monitor.isValid(f) {
 			fi2, err := f.Stat()
 			if err != nil {
-				panic(err)
+				return err
 			}
-
-			fmt.Println(fi, fi2)
 
 			if !fi2.ModTime().After(fi.ModTime()) {
 				j.submitted = true
@@ -245,6 +243,8 @@ func (j *Job) submit() {
 		j.queue.resetLocked(true)
 		j.queue.monitor.updateSpooling(-1)
 	}
+
+	return nil
 
 }
 
