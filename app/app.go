@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	log "github.com/sirupsen/logrus"
 	"github.com/smuething/devicemonitor/config"
 	"gopkg.in/yaml.v2"
 )
@@ -14,7 +15,7 @@ import (
 type Configuration struct {
 	config.ConfigBase
 
-	LogLevel string `yaml:"log_level,omitempty"`
+	LogLevel log.Level `yaml:"log_level,omitempty"`
 
 	PProf struct {
 		Enable  bool   `yaml:"enable,omitempty"`
@@ -86,11 +87,25 @@ func LoadConfig(userConfigFile string, configFiles ...string) error {
 	)
 	cr.SetCreateMissing(true)
 	cr.SetIgnoreMissing(true)
-	return cr.Load()
+	err := cr.Load()
+	config := Config()
+	config.Lock()
+	defer config.Unlock()
+	log.Infof("Setting loglevel %s", config.LogLevel)
+	log.SetLevel(config.LogLevel)
+	return err
 }
 
 func ReloadConfig() error {
-	return cr.Load()
+	err := cr.Load()
+	config := Config()
+	config.Lock()
+	defer config.Unlock()
+	if config.LogLevel != log.GetLevel() {
+		log.Infof("Updating loglevel from % s to %s", log.GetLevel(), config.LogLevel)
+		log.SetLevel(config.LogLevel)
+	}
+	return err
 }
 
 func Config() *Configuration {
