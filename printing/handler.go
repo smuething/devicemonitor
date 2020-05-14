@@ -1,7 +1,8 @@
-package handler
+package printing
 
 import (
 	"fmt"
+	"io"
 	"io/ioutil"
 	"os"
 	"os/exec"
@@ -9,16 +10,9 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/alexbrainman/printer"
 	log "github.com/sirupsen/logrus"
 	"github.com/smuething/devicemonitor/monitor"
-)
-
-const (
-	uec                = "\x1b%-12345X"
-	uecPJL             = uec + "@PJL"
-	pjlLandscapePrefix = "\x1b%-12345X@PJL DEFAULT SETDISTILLERPARAMS = \"<< /AutoRotatePages /All >>\"\r"
-	pclLandscape       = "\x1b&l1O"
-	maxJobSize         = 8 * (1 << 20) // 8 MiB should be plenty
 )
 
 var (
@@ -202,6 +196,81 @@ func (j *Job) showPDF() {
 	//log.Debugf("Running: %s", buildCmdLine(cmd.Args))
 	err := cmd.Start()
 	if err != nil {
+		log.Error(err)
+	}
+}
+
+func (j *Job) forwardPCLStream() error {
+
+	var err error
+	defer func() {
+		if err != nil {
+			log.Error(fmt.Errorf("Error forwarding raw PCL stream to printer %s: %s", j.Printer, err))
+		}
+	}()
+
+	log.Infof("Passing raw PCL data stream to printer: %s", j.Printer)
+
+	log.Debugf("Opening input file: %s", j.File)
+	data, err := os.Open(j.File)
+	if err != nil {
+		return err
+	}
+	defer data.Close()
+
+	log.Debugf("Opening printer")
+	p, err := printer.Open(j.Printer)
+	if err != nil {
+		return err
+	}
+	defer p.Close()
+
+	log.Debugf("Starting RAW document")
+	err = p.StartDocument(filepath.Base(j.File), "RAW")
+	if err != nil {
+		return err
+	}
+	defer p.EndDocument()
+
+	log.Debugf("Starting page")
+	err = p.StartPage()
+	if err != nil {
+		return err
+	}
+	defer p.EndPage()
+
+	log.Debugf("Sending file contents")
+	if nBytes, err := io.Copy(p, data); err != nil {
+		return err
+	} else {
+		log.Debugf("Sent %d bytes", nBytes)
+	}
+
+	return nil
+}
+
+func (j *Job) printPDF() {
+
+	log.Debugf("Sending PDF to printer %s with default settings", j.Printer)
+
+	if j.pdf == "" {
+		log.Fatal("Cannot print, PDF file has not been created yet")
+	}
+
+	viewer := `c:\Program Files\Tracker Software\PDF Viewer\PDFXCview.exe`
+	cmd := exec.Command(viewer, fmt.Sprintf(`/print:default&showui=no&printer=%s`, j.Printer), j.pdf)
+
+	// We have to manually build the command line, as Go messes up the second argument, which contains quotes
+	// somewhere in the middle of the argument
+	// cmd.SysProcAttr = &syscall.SysProcAttr{}
+	// cmd.SysProcAttr.CmdLine = strings.Join([]string{
+	// 	escapeArgument(config.Paths.PDFViewer),
+	// 	fmt.Sprintf(`/print:default&showui=no&printer="%s"`, j.printer),
+	// 	escapeArgument(j.pdf),
+	// }, " ")
+	// log.Debugf("Running: %s", cmd.SysProcAttr.CmdLine)
+
+	if err := cmd.Run(); err != nil {
 		log.Error(err)
 	}
 }

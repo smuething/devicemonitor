@@ -15,8 +15,8 @@ import (
 	"github.com/lxn/walk"
 	log "github.com/sirupsen/logrus"
 	"github.com/smuething/devicemonitor/app"
-	"github.com/smuething/devicemonitor/handler"
 	"github.com/smuething/devicemonitor/monitor"
+	"github.com/smuething/devicemonitor/printing"
 )
 
 func ShowError(owner walk.Form, title, message string) {
@@ -127,7 +127,7 @@ func RunUI() {
 	tray.finalize()
 
 	app.Go(func() {
-		handler.Foo(m)
+		printing.Foo(m)
 		// for job := range monitor.Jobs() {
 		// 	log.Infof("Processing job %s", job.Name)
 		// }
