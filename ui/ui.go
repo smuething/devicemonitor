@@ -40,13 +40,19 @@ func RunUI() {
 	// make sure we stay on the main thread, otherwise we will crash sooner or later
 	runtime.LockOSThread()
 
+	config := app.Config()
+
+	logFile, err := os.OpenFile(config.Logging.File, os.O_CREATE|os.O_APPEND, 0644)
+	if err != nil {
+		log.Fatalf("Could not open log file %s", config.Logging.File)
+	}
+	log.SetOutput(logFile)
+
 	defer func() {
 		if err := recover(); err != nil {
 			ShowError(nil, "Panic", fmt.Sprint(err, "\n\n", string(debug.Stack())))
 		}
 	}()
-
-	var err error
 
 	mainWindow, err := walk.NewMainWindow()
 	if err != nil {
@@ -58,7 +64,7 @@ func RunUI() {
 	defer tray.Dispose()
 
 	var m *monitor.Monitor
-	config := app.Config()
+
 	func() {
 		config.Lock()
 		defer config.Unlock()

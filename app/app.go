@@ -15,7 +15,10 @@ import (
 type Configuration struct {
 	config.ConfigBase
 
-	LogLevel log.Level `yaml:"log_level,omitempty"`
+	Logging struct {
+		Level log.Level `yaml:"level,omitempty"`
+		File  string    `yaml:"file,omitempty"`
+	} `yaml:"logging,omitempty"`
 
 	PProf struct {
 		Enable  bool   `yaml:"enable,omitempty"`
@@ -91,12 +94,12 @@ func LoadConfig(userConfigFile string, configFiles ...string) error {
 	config := Config()
 	config.Lock()
 	defer config.Unlock()
-	if config.LogLevel < log.ErrorLevel {
+	if config.Logging.Level < log.ErrorLevel {
 		log.Infof("Clamping loglevel to %s", log.ErrorLevel)
-		config.LogLevel = log.ErrorLevel
+		config.Logging.Level = log.ErrorLevel
 	}
-	log.Infof("Setting loglevel %s", config.LogLevel)
-	log.SetLevel(config.LogLevel)
+	log.Infof("Setting loglevel %s", config.Logging.Level)
+	log.SetLevel(config.Logging.Level)
 	return err
 }
 
@@ -105,13 +108,13 @@ func ReloadConfig() error {
 	config := Config()
 	config.Lock()
 	defer config.Unlock()
-	if config.LogLevel < log.ErrorLevel {
+	if config.Logging.Level < log.ErrorLevel {
 		log.Infof("Clamping loglevel to %s", log.ErrorLevel)
-		config.LogLevel = log.ErrorLevel
+		config.Logging.Level = log.ErrorLevel
 	}
-	if config.LogLevel != log.GetLevel() {
-		log.Infof("Updating loglevel from % s to %s", log.GetLevel(), config.LogLevel)
-		log.SetLevel(config.LogLevel)
+	if config.Logging.Level != log.GetLevel() {
+		log.Infof("Updating loglevel from % s to %s", log.GetLevel(), config.Logging.Level)
+		log.SetLevel(config.Logging.Level)
 	}
 	return err
 }
