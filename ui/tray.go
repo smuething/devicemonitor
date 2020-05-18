@@ -260,6 +260,7 @@ func (tray *Tray) addDeviceMenu(config *app.DeviceConfig) (err error) {
 		action.Triggered().Attach(func() {
 			if menu.active != nil {
 				if menu.active == action {
+					menu.active.SetChecked(true)
 					return
 				}
 				menu.active.SetChecked(false)
