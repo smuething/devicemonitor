@@ -90,7 +90,7 @@ func (q *Queue) start() error {
 		return fmt.Errorf("Cannot start queue %s in state %s", q.Name, q.state)
 	}
 
-	err := q.resetLocked(false)
+	err := q.resetWhileLocked(false)
 	if err != nil {
 		return err
 	}
@@ -155,10 +155,10 @@ func (q *Queue) startJob() (*Job, error) {
 func (q *Queue) reset(submitJob bool) error {
 	q.m.Lock()
 	defer q.m.Unlock()
-	return q.resetLocked(submitJob)
+	return q.resetWhileLocked(submitJob)
 }
 
-func (q *Queue) resetLocked(submitJob bool) error {
+func (q *Queue) resetWhileLocked(submitJob bool) error {
 
 	// We have to actually remove the file instead of relying on os.Create()
 	// to truncate it because there could be an active job whose file is
@@ -240,7 +240,7 @@ func (j *Job) submit() error {
 	}
 
 	if j.submitted {
-		j.queue.resetLocked(true)
+		j.queue.resetWhileLocked(true)
 		j.queue.monitor.updateSpooling(-1)
 	}
 
