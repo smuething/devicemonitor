@@ -26,7 +26,10 @@ type Configuration struct {
 	} `yaml:"pprof,omitempty"`
 
 	Paths struct {
-		SpoolDir string `yaml:"spool_dir,omitempty"`
+		SpoolDir    string `yaml:"spool_dir,omitempty"`
+		GhostPCL    string `yaml:"ghost_pcl,omitempty"`
+		GhostScript string `yaml:"ghost_script,omitempty"`
+		PDFDir      string `yaml:"pdf_dir,omitempty"`
 	} `yaml:"paths,omitempty"`
 
 	Devices map[string]DeviceConfig `yaml:"devices,omitempty"`
@@ -66,6 +69,7 @@ type JobConfig struct {
 	Description      string `yaml:"description,omitempty"`
 	PaperTrayPJLCode string `yaml:"paper_tray_pjl_code,omitempty"`
 	Color            bool   `yaml:"color,omitempty"`
+	Duplex           bool   `yaml:"duplex,omitempty"`
 }
 
 var wg *sync.WaitGroup = &sync.WaitGroup{}
