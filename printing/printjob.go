@@ -3,17 +3,20 @@ package printing
 import (
 	"bufio"
 	"fmt"
-	"io"
+	"io/ioutil"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
+
+	"github.com/smuething/devicemonitor/app"
 
 	"github.com/alexbrainman/printer"
 	log "github.com/sirupsen/logrus"
 	"github.com/smuething/devicemonitor/monitor"
 )
 
-//go:generate go-enum -type PrintLanguage
+//go:generate go-enum -type PrintLanguage -trimprefix PrintLanguage -transform kebab
 type PrintLanguage int32
 
 const (
@@ -23,7 +26,7 @@ const (
 	PrintLanguagePostScript
 )
 
-//go:generate go-enum -type Orientation
+//go:generate go-enum -type Orientation -trimprefix Orientation -transform kebab
 type Orientation int32
 
 const (
@@ -32,13 +35,29 @@ const (
 	OrientationLandscape
 )
 
+//go:generate go-enum -type JobType -trimprefix JobType -transform kebab
+type JobType int32
+
+const (
+	invalidJobType JobType = iota
+	JobTypeList
+	JobTypeForm
+)
+
 const (
 	newline            = "\r\n"
+	newlineRE          = "\r?\n"
 	uec                = "\x1b%-12345X"
 	uecPJL             = uec + "@PJL"
 	pjlLandscapePrefix = "\x1b%-12345X@PJL DEFAULT SETDISTILLERPARAMS = \"<< /AutoRotatePages /All >>\"\r"
-	pclLandscape       = "\x1b&l1O"
-	maxJobSize         = 8 * (1 << 20) // 8 MiB should be plenty
+	MaxJobSize         = 8 * (1 << 20) // 8 MiB should be plenty
+)
+
+var (
+	pclSimplexDuplex    = regexp.MustCompile("\x1b&l(0|1|2)S" + newlineRE)
+	pclLandscape        = regexp.MustCompile("\x1b&l1O" + newlineRE)
+	pclAbsolutePosition = regexp.MustCompile("\x1b*p([1-9][0-9]*(\\.?[0-9]*))x([1-9][0-9]*(\\.?[0-9]*))Y" + newlineRE)
+	pjlBlock            = regexp.MustCompile(uecPJL + ".*?ENTER LANGUAGE\\s*=\\s*PCL\\s*" + newlineRE)
 )
 
 type PrintJob struct {
@@ -48,25 +67,83 @@ type PrintJob struct {
 	Language    PrintLanguage
 	Duplex      bool
 	Tray        int
+	JobType     JobType
 	Orientation Orientation
-	data        io.Reader
+	data        string
 	pdf         string
+	ghostPCL    string
+	ghostScript string
 }
 
-func NewPrintJob(name string, title string, language PrintLanguage, duplex bool, tray int, orientation Orientation, data io.Reader) PrintJob {
+func NewPrintJob(job *monitor.Job, name string, title string, language PrintLanguage, duplex bool, tray int) PrintJob {
+	config := app.Config()
+	config.Lock()
+	defer config.Unlock()
+
 	return PrintJob{
+		Job:         job,
 		Name:        name,
 		Title:       title,
 		Language:    language,
 		Duplex:      duplex,
 		Tray:        tray,
-		Orientation: orientation,
-		data:        data,
+		ghostPCL:    config.Paths.GhostPCL,
+		ghostScript: config.Paths.GhostScript,
 	}
 }
 
+func (j *PrintJob) Inspect() error {
+
+	fi, err := os.Stat(j.File)
+	if err != nil {
+		return err
+	}
+
+	if fi.Size() > MaxJobSize {
+		return fmt.Errorf("Could not process print job %s: file size %d exceeds max job size %d", j.File, fi.Size(), MaxJobSize)
+	}
+
+	rawData, err := ioutil.ReadFile(j.File)
+	if err != nil {
+		return err
+	}
+	j.data = string(rawData)
+
+	if pclLandscape.FindStringIndex(j.data) != nil {
+		log.Debugf("Found landscape orientation command, assuming landscape orientation")
+		j.Orientation = OrientationLandscape
+	} else {
+		log.Debugf("No landscape orientation command found, assuming portrait orientation")
+		j.Orientation = OrientationPortrait
+	}
+
+	if pclAbsolutePosition.FindStringIndex(j.data) != nil {
+		if j.Orientation == OrientationLandscape {
+			return fmt.Errorf("Found absolute positioning and landscape orientation in job %s, bailing out", j.File)
+		} else {
+			j.JobType = JobTypeList
+		}
+	} else {
+		j.JobType = JobTypeList
+	}
+
+	return nil
+}
+
 func (j *PrintJob) NeedsScaling() bool {
-	return false
+	return j.JobType == JobTypeList
+}
+
+func (j *PrintJob) Sanitize() error {
+	if j.Orientation == OrientationLandscape {
+		j.data = pclLandscape.ReplaceAllString(j.data, "")
+	}
+	// remove simplex and duplex commands
+	j.data = pclSimplexDuplex.ReplaceAllString(j.data, "")
+
+	// remove all PJL commands
+	j.data = pjlBlock.ReplaceAllString(j.data, "")
+	return nil
 }
 
 func (j *PrintJob) createPDF(path string) {
@@ -82,10 +159,6 @@ func (j *PrintJob) createPDF(path string) {
 		//log.Infof("Assuming an oversized list, scaling from %d x %d mm to A4", config.Printing.ScaledWidth, config.Printing.ScaledHeight)
 	}
 
-	// The wrapped executable must be late in the alphabet because Printfil picks the first executable it finds in the directory
-	executable := `h:\ghostpcl-9.50-win32\zzz-wrapped-gpcl6win32.exe` //filepath.Join(filepath.Dir(os.Args[0]), "zzz-wrapped-"+filepath.Base(os.Args[0]))
-	log.Debugf("Executable: %s", executable)
-
 	args := []string{
 		"-dPrinted",
 		"-dBATCH",
@@ -98,7 +171,7 @@ func (j *PrintJob) createPDF(path string) {
 		j.File,
 	}
 
-	cmd := exec.Command(executable, args...)
+	cmd := exec.Command(j.ghostPCL, args...)
 	cmd.Stdout = os.Stdout //j.logfile
 	cmd.Stderr = os.Stdout //j.logfile
 
@@ -201,10 +274,14 @@ func (j *PrintJob) spool(out *bufio.Writer) error {
 	switch j.Language {
 	case PrintLanguagePDF:
 		log.Debug("PDF job: forwarding PDF payload unchanged")
-		io.Copy(out, j.data)
+		if _, err := out.WriteString(j.data); err != nil {
+			return err
+		}
 	case PrintLanguagePCL:
 		log.Debug("PCL job")
-		io.Copy(out, j.data)
+		if _, err := out.WriteString(j.data); err != nil {
+			return err
+		}
 	default:
 		return fmt.Errorf("Unknown job type: %d (%s)", j.Language, j.Language)
 	}
