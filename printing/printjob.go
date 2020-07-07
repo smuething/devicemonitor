@@ -12,7 +12,6 @@ import (
 
 	"github.com/smuething/devicemonitor/app"
 
-	"github.com/alexbrainman/printer"
 	log "github.com/sirupsen/logrus"
 	"github.com/smuething/devicemonitor/monitor"
 )
@@ -341,36 +340,37 @@ func (j *PrintJob) sendToPrinter() error {
 	}
 	defer data.Close()
 
-	log.Debugf("Opening printer")
-	p, err := printer.Open(j.Printer)
-	if err != nil {
-		return err
-	}
-	defer p.Close()
+	/*
+		log.Debugf("Opening printer")
+		p, err := printer.Open(j.Printer)
+		if err != nil {
+			return err
+		}
+		defer p.Close()
 
-	log.Debugf("Starting RAW document")
-	err = p.StartDocument(filepath.Base(j.File), "RAW")
-	if err != nil {
-		return err
-	}
-	defer p.EndDocument()
+		log.Debugf("Starting RAW document")
+		err = p.StartDocument(filepath.Base(j.File), "RAW")
+		if err != nil {
+			return err
+		}
+		defer p.EndDocument()
 
-	log.Debugf("Starting page")
-	err = p.StartPage()
-	if err != nil {
-		return err
-	}
-	defer p.EndPage()
+		log.Debugf("Starting page")
+		err = p.StartPage()
+		if err != nil {
+			return err
+		}
+		defer p.EndPage()
 
-	log.Debugf("Sending data")
-	bufferedWriter := bufio.NewWriter(p)
-	if err := j.spool(bufferedWriter); err != nil {
-		return err
-	}
-	if err := bufferedWriter.Flush(); err != nil {
-		return err
-	}
-
+		log.Debugf("Sending data")
+		bufferedWriter := bufio.NewWriter(p)
+		if err := j.spool(bufferedWriter); err != nil {
+			return err
+		}
+		if err := bufferedWriter.Flush(); err != nil {
+			return err
+		}
+	*/
 	return nil
 }
 
