@@ -12,11 +12,12 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/smuething/devicemonitor/printing"
+
 	"github.com/lxn/walk"
 	log "github.com/sirupsen/logrus"
 	"github.com/smuething/devicemonitor/app"
 	"github.com/smuething/devicemonitor/monitor"
-	"github.com/smuething/devicemonitor/printing"
 )
 
 func ShowError(owner walk.Form, title, message string) {
@@ -127,10 +128,17 @@ func RunUI() {
 	tray.finalize()
 
 	app.Go(func() {
-		printing.Foo(m)
-		// for job := range monitor.Jobs() {
-		// 	log.Infof("Processing job %s", job.Name)
-		// }
+		for mj := range m.Jobs() {
+			j := printing.NewPrintJob(
+				mj,
+				"test",
+				"test",
+				printing.PrintLanguagePDF,
+				false,
+				0,
+			)
+			app.Go(j.Process)
+		}
 	})
 
 	app.Go(func() {

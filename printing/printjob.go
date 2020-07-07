@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strings"
 
 	"github.com/smuething/devicemonitor/app"
 
@@ -92,7 +93,7 @@ func NewPrintJob(job *monitor.Job, name string, title string, language PrintLang
 	}
 }
 
-func (j *PrintJob) Inspect() error {
+func (j *PrintJob) inspect() error {
 
 	fi, err := os.Stat(j.File)
 	if err != nil {
@@ -134,7 +135,7 @@ func (j *PrintJob) NeedsScaling() bool {
 	return j.JobType == JobTypeList
 }
 
-func (j *PrintJob) Sanitize() error {
+func (j *PrintJob) sanitize() error {
 	if j.Orientation == OrientationLandscape {
 		j.data = pclLandscape.ReplaceAllString(j.data, "")
 	}
@@ -146,14 +147,34 @@ func (j *PrintJob) Sanitize() error {
 	return nil
 }
 
-func (j *PrintJob) createPDF(path string) {
+func (j *PrintJob) createPDF(path string) error {
 
-	j.pdf = j.Time.Format("Printout 2006-01-02 150405.pdf")
-	j.pdf = filepath.Join(path, filepath.Base(j.pdf))
+	basename := strings.TrimSuffix(j.File, filepath.Ext(j.File))
+
+	sanitizedName := basename + "-sanitized.txt"
+	err := func() error {
+		sanitized, err := os.Create(sanitizedName)
+		if err != nil {
+			return err
+		}
+		defer sanitized.Close()
+
+		_, err = sanitized.WriteString(j.data)
+		if err != nil {
+			return err
+		}
+
+		return nil
+	}()
+	if err != nil {
+		return err
+	}
+
+	j.pdf = filepath.Join(path, j.Time.Format("Printout 2006-01-02 150405.pdf"))
 	log.Infof("Creating PDF file: %s", j.pdf)
 
-	scalePDF := j.NeedsScaling() // false //config.Printing.ScaleNonPJLJobs && !j.jobContainsPJL()
-	//unscaledPDF := strings.TrimSuffix(j.File, filepath.Ext(j.File)) + "-unscaled.pdf"
+	scalePDF := j.NeedsScaling()
+	//unscaledPDF := basename + "-unscaled.pdf"
 	//var scaleArgs []string
 	if scalePDF {
 		//log.Infof("Assuming an oversized list, scaling from %d x %d mm to A4", config.Printing.ScaledWidth, config.Printing.ScaledHeight)
@@ -168,12 +189,12 @@ func (j *PrintJob) createPDF(path string) {
 		"-sDEVICE=pdfwrite",
 		"-dNoCancel",
 		fmt.Sprintf(`-sOutputFile=%s`, j.pdf),
-		j.File,
+		sanitizedName,
 	}
 
 	cmd := exec.Command(j.ghostPCL, args...)
-	cmd.Stdout = os.Stdout //j.logfile
-	cmd.Stderr = os.Stdout //j.logfile
+	//cmd.Stdout = os.Stdout //j.logfile
+	//cmd.Stderr = os.Stdout //j.logfile
 
 	// if scalePDF {
 	// 	log.Debugf("Creating intermediate PDF file %s with nonstandard format %d x %d mm", unscaledPDF, config.Printing.ScaledWidth, config.Printing.ScaledHeight)
@@ -195,9 +216,9 @@ func (j *PrintJob) createPDF(path string) {
 	// cmd.SysProcAttr.CmdLine = cmdLine
 	// log.Debugf("Calling wrapped executable with cmdline: %s", cmdLine)
 
-	err := cmd.Run()
+	err = cmd.Run()
 	if err != nil {
-		log.Error(err)
+		return err
 	}
 
 	// if scalePDF {
@@ -240,6 +261,15 @@ func (j *PrintJob) createPDF(path string) {
 	// 		log.Fatal(err)
 	// 	}
 	// }
+
+	pdfBuf, err := ioutil.ReadFile(j.pdf)
+	if err != nil {
+		return err
+	}
+
+	j.data = string(pdfBuf)
+
+	return nil
 }
 
 func (j *PrintJob) spool(out *bufio.Writer) error {
@@ -342,4 +372,11 @@ func (j *PrintJob) sendToPrinter() error {
 	}
 
 	return nil
+}
+
+func (j *PrintJob) Process() {
+	j.inspect()
+	j.sanitize()
+	j.createPDF("w:\\")
+	j.sendToPrinter()
 }

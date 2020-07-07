@@ -45,7 +45,7 @@ func (j *Job) parse() error {
 		return err
 	}
 
-	if fi.Size() > maxJobSize {
+	if fi.Size() > MaxJobSize {
 		return fmt.Errorf("Job %s is too large, try direct forwarding to printer", j.Name)
 	}
 
@@ -63,7 +63,7 @@ func (j *Job) parse() error {
 		j.hasMultipleUEC = idx < strings.LastIndex(data, uec)
 	}
 
-	j.landscape = strings.Index(data, pclLandscape) >= 0
+	//j.landscape = strings.Index(data, pclLandscape) >= 0
 
 	indices := pitchRE.FindStringSubmatchIndex(data)
 	if len(indices) > 0 {
