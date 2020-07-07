@@ -51,16 +51,6 @@ func (d *dummySettings) Get(string) string {
 
 func (d *dummySettings) Set(string, string) {}
 
-type Job struct {
-	m         sync.Mutex
-	Time      time.Time
-	Name      string
-	queue     *Queue
-	File      string
-	Printer   string
-	submitted bool
-}
-
 type Queue struct {
 	m            sync.Mutex
 	Device       string
