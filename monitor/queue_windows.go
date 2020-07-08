@@ -13,30 +13,6 @@ import (
 	"github.com/smuething/devicemonitor/app"
 )
 
-type state int
-
-const (
-	invalid = iota
-	valid
-	running
-	stopped
-)
-
-func (s state) String() string {
-	switch s {
-	case invalid:
-		return "invalid"
-	case valid:
-		return "valid"
-	case running:
-		return "running"
-	case stopped:
-		return "stopped"
-	default:
-		return fmt.Sprintf("UNKNOWN STATE: %d", s)
-	}
-}
-
 type dummySettings struct{}
 
 func (d *dummySettings) Get(string) string {

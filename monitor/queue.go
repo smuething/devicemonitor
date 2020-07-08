@@ -1,9 +1,34 @@
 package monitor
 
 import (
+	"fmt"
 	"sync"
 	"time"
 )
+
+type state int
+
+const (
+	invalid = iota
+	valid
+	running
+	stopped
+)
+
+func (s state) String() string {
+	switch s {
+	case invalid:
+		return "invalid"
+	case valid:
+		return "valid"
+	case running:
+		return "running"
+	case stopped:
+		return "stopped"
+	default:
+		return fmt.Sprintf("UNKNOWN STATE: %d", s)
+	}
+}
 
 type Settings interface {
 	Get(name string) string
